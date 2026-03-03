@@ -69,3 +69,15 @@ class DocumentMetadata(Base):
     title = Column(String(255), nullable=False)
     source_url = Column(String(500))
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Enrollment(Base):
+    __tablename__ = "enrollments"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"))
+    subject = Column(String(255), nullable=False)
+    college = Column(String(100))
+    department = Column(String(100))
+    room = Column(String(100))
+    created_at = Column(DateTime, default=datetime.utcnow)
+

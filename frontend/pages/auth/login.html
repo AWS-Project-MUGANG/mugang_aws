@@ -91,20 +91,36 @@
     </div>
 
     <script>
-        // 백엔드 연결 전 임시 로그인 로직
-        function handleLogin(e) {
+        // 백엔드 통신 로그인 로직
+        async function handleLogin(e) {
             e.preventDefault();
             const sid = document.getElementById('studentId').value;
             const pwd = document.getElementById('password').value;
 
             if (sid && pwd) {
-                // 아이디에 'admin' 또는 'prof'가 포함되어 있으면 강사 화면으로 이동
-                if (sid.toLowerCase().includes('admin') || sid.toLowerCase().includes('prof')) {
-                    alert('강사(관리자) 권한으로 로그인 되었습니다.');
-                    window.location.href = '../admin/dashboard.html';
-                } else {
-                    alert('학생 권한으로 로그인 되었습니다.');
-                    window.location.href = '../student/dashboard.html';
+                try {
+                    const response = await fetch('http://localhost:8000/api/v1/auth/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ student_id: sid, password: pwd })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        // 로컬 스토리지에 사용자 정보 저장
+                        localStorage.setItem('user_id', data.user_id);
+                        localStorage.setItem('access_token', data.access_token);
+                        localStorage.setItem('role', data.role);
+
+                        alert(data.role === 'admin' ? '강사(관리자) 권한으로 로그인 되었습니다.' : '학생 권한으로 로그인 되었습니다.');
+                        window.location.href = data.role === 'admin' ? '../admin/dashboard.html' : '../student/dashboard.html';
+                    } else {
+                        const errorData = await response.json();
+                        alert(`로그인 실패: ${errorData.detail}`);
+                    }
+                } catch (error) {
+                    console.error('Login error:', error);
+                    alert('서버 연결에 실패했습니다. 백엔드가 켜져있는지 확인해주세요.');
                 }
             }
         }
