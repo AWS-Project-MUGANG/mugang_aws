@@ -1,11 +1,6 @@
-// 모의 데이터
-const mockSugangList = [
-    { id: 1, college: "사회과학대학", department: "아동가족복지학과", subject: "인간행동과 사회환경", type: "전공필수", room: "대강당", credit: 3, capacity: 60, applied: 24, times: [{day: 1, time: 0}, {day: 3, time: 0}] },
-    { id: 2, college: "사회과학대학", department: "아동가족복지학과", subject: "여성과 사회", type: "교양필수", room: "온라인 강의", credit: 3, capacity: 200, applied: 198, times: [{day: 2, time: 1}, {day: 4, time: 1}] },
-    { id: 3, college: "사회과학대학", department: "아동가족복지학과", subject: "영어 회화 II", type: "교양선택", room: "306호", credit: 2, capacity: 15, applied: 15, times: [{day: 5, time: 2}] },
-    { id: 4, college: "사회과학대학", department: "아동가족복지학과", subject: "영유아 발달", type: "전공필수", room: "사 502호", credit: 3, capacity: 40, applied: 38, times: [{day: 2, time: 3}, {day: 4, time: 3}] }
-];
-  
+// 강의 목록을 저장할 전역 변수 (API 연동)
+let courseList = [];
+
 // 기존 장바구니 데이터 대신 백엔드에서 불러옵니다.
 let cartData = [];
 
@@ -49,20 +44,32 @@ function switchTab(tabName) {
     }
 }
 
+// 수강목록 API에서 불러오기
+async function loadCourseList() {
+    try {
+        const res = await fetch('/api/v1/courses');
+        if(res.ok) {
+            const data = await res.json();
+            courseList = data.courses;
+            renderSugangList();
+        }
+    } catch(e) { console.error('Failed to load courses:', e); }
+}
+
 // 수강목록 렌더링
 function renderSugangList() {
     sugangTbody.innerHTML = '';
-    mockSugangList.forEach(item => {
+    courseList.forEach(item => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td>${item.college}</td>
-            <td>${item.department}</td>
+            <td>${item.college || '-'}</td>
+            <td>${item.department || '-'}</td>
             <td>${item.subject}</td>
-            <td>${item.type}</td>
-            <td>${item.room}</td>
+            <td>${item.type || '-'}</td>
+            <td>${item.room || '-'}</td>
             <td>${item.credit}</td>
             <td>${item.capacity}</td>
-            <td><button class="btn-apply" onclick="addToCart(${item.id})">담기</button></td>
+            <td><button class="btn-apply" onclick="addToCart('${item.id}')">담기</button></td>
         `;
         sugangTbody.appendChild(tr);
     });
@@ -141,7 +148,7 @@ window.addToCart = async function(id) {
         return;
     }
 
-    const item = mockSugangList.find(c => c.id === id);
+    const item = courseList.find(c => c.id === id);
     if (!item) return;
 
     const exists = cartData.find(c => c.subject === item.subject);
@@ -195,7 +202,8 @@ function renderTimetable() {
     const colors = ['#e3f2fd', '#e8f5e9', '#fff3e0', '#fce4ec', '#f3e5f5'];
     
     cartData.forEach((cartItem, index) => {
-        const mockItem = mockSugangList.find(m => m.subject === cartItem.subject);
+        // 기존은 subject 매칭이었으나 API 구조에 맞춰 매칭 로직 간소화
+        const mockItem = courseList.find(c => c.subject === cartItem.subject);
         if(mockItem && mockItem.times) {
             const color = colors[index % colors.length];
             mockItem.times.forEach(t => {
@@ -340,9 +348,41 @@ window.onload = async function() {
         window.location.href = '../auth/login.html';
         return;
     }
-    renderSugangList();
+    await loadCourseList();
     await checkEnrollmentPeriod();
     await loadEnrollments();
     await loadStats();
     await loadNotices();
+};
+
+window.generateCertificatePDF = async function() {
+    // 1. 값 채우기
+    const nameStr = document.querySelector('.student-info .name')?.innerText || '홍길동';
+    const idStr = document.querySelector('.student-info .id')?.innerText || '20201234';
+    const deptStr = document.querySelector('.department-info p')?.innerText || '사회과학대학';
+    const subDeptStr = document.querySelector('.department-info .sub-dept')?.innerText.replace('2학년', '').trim() || '아동가족복지학과';
+    
+    document.getElementById('cert-name').innerText = nameStr;
+    document.getElementById('cert-id').innerText = idStr;
+    document.getElementById('cert-major').innerText = `${deptStr} ${subDeptStr}`;
+    
+    const today = new Date();
+    document.getElementById('cert-date').innerText = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+
+    // 2. 렌더링 및 PDF 생성
+    const template = document.getElementById('pdf-certificate-template');
+    try {
+        const canvas = await html2canvas(template, { scale: 2 });
+        const imgData = canvas.toDataURL('image/png');
+        
+        const pdf = new window.jspdf.jsPDF('p', 'pt', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.save('무강대학교_재학증명서.pdf');
+    } catch (e) {
+        console.error("PDF 생성 오류:", e);
+        alert("PDF 생성 중 오류가 발생했습니다.");
+    }
 };

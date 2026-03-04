@@ -62,6 +62,7 @@ class RegisterRequest(BaseModel):
     password: str
     name: str
     major: str
+    role: Optional[str] = "student"
 
 class LoginRequest(BaseModel):
     student_id: str
@@ -105,6 +106,21 @@ class ConfigRequest(BaseModel):
 class EnrollmentPeriodRequest(BaseModel):
     start_time: str # ISO Format
     end_time: str # ISO Format
+
+class CourseTimeRequest(BaseModel):
+    day: int
+    time: int
+
+class CourseRequest(BaseModel):
+    subject: str
+    college: str
+    department: str
+    course_type: str
+    room: str
+    credit: int
+    capacity: int
+    professor_id: Optional[str] = None
+    times: List[CourseTimeRequest] = []
 
 class EnrollmentRequest(BaseModel):
     user_id: str
@@ -152,7 +168,8 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
         student_id=req.student_id,
         password_hash=hashed_password,
         name=req.name,
-        major=req.major
+        major=req.major,
+        role=req.role
     )
     db.add(new_user)
     db.commit()
@@ -176,14 +193,13 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 
     # 정상 로그인 시, 사용자 정보를 바탕으로 JWT 토큰 발급
     access_token = create_access_token(data={"sub": user.student_id, "id": user.id})
-    role = "admin" if "admin" in req.student_id.lower() or "prof" in req.student_id.lower() else "student"
 
     return {
         "access_token": access_token, 
         "token_type": "bearer",
         "user_id": user.id, 
         "name": user.name,
-        "role": role
+        "role": user.role
     }
 
 @app.post("/api/v1/chat/ask")
@@ -241,6 +257,66 @@ def chat_ask(req: ChatRequest, db: Session = Depends(get_db)):
         "sources": source_info
     }
 
+
+# --- 강의(Course) 관련 API ---
+
+@app.get("/api/v1/courses")
+def get_all_courses(db: Session = Depends(get_db)):
+    """전체 개설 강의 목록 조회 (학생/관리자 공용)"""
+    courses = db.query(models.Course).all()
+    result = []
+    for c in courses:
+        times = [{"day": t.day, "time": t.time} for t in c.times]
+        result.append({
+            "id": c.id,
+            "subject": c.subject,
+            "college": c.college,
+            "department": c.department,
+            "type": c.course_type,
+            "room": c.room,
+            "credit": c.credit,
+            "capacity": c.capacity,
+            "applied": c.applied,
+            "times": times
+        })
+    return {"courses": result}
+
+@app.post("/api/v1/admin/courses", status_code=status.HTTP_201_CREATED)
+def create_course(req: CourseRequest, db: Session = Depends(get_db)):
+    """관리자: 새로운 강의 등록"""
+    new_course = models.Course(
+        subject=req.subject,
+        college=req.college,
+        department=req.department,
+        course_type=req.course_type,
+        room=req.room,
+        credit=req.credit,
+        capacity=req.capacity,
+        professor_id=req.professor_id
+    )
+    db.add(new_course)
+    db.flush() # ID를 얻기 위해 flush
+    
+    for t in req.times:
+        new_time = models.CourseTime(course_id=new_course.id, day=t.day, time=t.time)
+        db.add(new_time)
+        
+    db.commit()
+    return {"message": "강의가 성공적으로 개설되었습니다.", "course_id": new_course.id}
+
+@app.delete("/api/v1/admin/courses/{course_id}")
+def delete_course(course_id: str, db: Session = Depends(get_db)):
+    """관리자: 강의 삭제"""
+    course = db.query(models.Course).filter(models.Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="강의를 찾을 수 없습니다.")
+    db.delete(course)
+    db.commit()
+    return {"message": "강의가 삭제되었습니다."}
+
+
+# --- 수강신청(Enrollment) 관련 API ---
+
 @app.get("/api/v1/enrollments/{user_id}")
 def get_user_enrollments(user_id: str, db: Session = Depends(get_db)):
     """
@@ -284,13 +360,29 @@ def create_enrollment(req: EnrollmentRequest, db: Session = Depends(get_db)):
     if existing_enrollment:
         raise HTTPException(status_code=400, detail="이미 신청(장바구니 담기)이 완료된 과목입니다.")
 
+    # 시간표 겹침(Overlap) 검사 로직
+    target_course = db.query(models.Course).filter(models.Course.subject == req.subject).first()
+    if target_course and target_course.times:
+        user_enrollments = db.query(models.Enrollment).filter(models.Enrollment.user_id == req.user_id).all()
+        for en in user_enrollments:
+            en_course = db.query(models.Course).filter(models.Course.subject == en.subject).first()
+            if en_course and en_course.times:
+                for t1 in target_course.times:
+                    for t2 in en_course.times:
+                        if t1.day == t2.day and t1.time == t2.time:
+                            raise HTTPException(
+                                status_code=400, 
+                                detail=f"해당 과목은 기존에 담으신 '{en.subject}' 과목과 시간표가 겹칩니다."
+                            )
+
     new_enrollment = models.Enrollment(
         user_id=req.user_id,
         subject=req.subject,
         college=req.college,
         department=req.department,
         room=req.room,
-        status="cart"
+        status="cart",
+        credits=target_course.credit if target_course else 3
     )
     db.add(new_enrollment)
     db.commit()
@@ -358,12 +450,21 @@ def get_student_stats(user_id: str, db: Session = Depends(get_db)):
     }
 
 @app.get("/api/v1/admin/enrollments")
-def get_admin_enrollments(db: Session = Depends(get_db)):
-    """관리자용: 개설 과목별 수강생 전체 현황"""
+def get_admin_enrollments(professor_id: Optional[str] = None, db: Session = Depends(get_db)):
+    """관리자용: 개설 과목별 수강생 전체 현황 (교수는 본인 과목만)"""
+    allowed_subjects = None
+    if professor_id:
+        courses = db.query(models.Course).filter(models.Course.professor_id == professor_id).all()
+        allowed_subjects = [c.subject for c in courses]
+        if not allowed_subjects:
+            return {"classes": []}
+
     enrollments = db.query(models.Enrollment).all()
     # 과목별 묶기
     summary = {}
     for en in enrollments:
+        if allowed_subjects is not None and en.subject not in allowed_subjects:
+            continue
         if en.subject not in summary:
             summary[en.subject] = {"subject": en.subject, "students": []}
         user = db.query(models.User).filter(models.User.id == en.user_id).first()

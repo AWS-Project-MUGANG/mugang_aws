@@ -17,6 +17,7 @@ class User(Base):
     degree_level = Column(String(20))
     language = Column(String(10), default="ko")
     status = Column(String(20), default="enrolled")
+    role = Column(String(20), default="student")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class ChatSession(Base):
@@ -112,4 +113,31 @@ class SystemConfig(Base):
 
     key = Column(String(100), primary_key=True)
     value = Column(String(255), nullable=False)
+
+class Course(Base):
+    __tablename__ = "courses"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    subject = Column(String(255), nullable=False)
+    college = Column(String(100))
+    department = Column(String(100))
+    course_type = Column(String(50)) # 전공필수, 교양선택 등
+    room = Column(String(100))
+    credit = Column(Integer, default=3)
+    capacity = Column(Integer, default=40)
+    applied = Column(Integer, default=0)
+    professor_id = Column(String, ForeignKey("users.id"), nullable=True) # 담당 교수 (추후 연결)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    times = relationship("CourseTime", back_populates="course", cascade="all, delete-orphan")
+
+class CourseTime(Base):
+    __tablename__ = "course_times"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    course_id = Column(String, ForeignKey("courses.id", ondelete="CASCADE"))
+    day = Column(Integer) # 1:월, 2:화, 3:수, 4:목, 5:금
+    time = Column(Integer) # 0: 9~10시, 1: 10~11시 ...
+    
+    course = relationship("Course", back_populates="times")
 
