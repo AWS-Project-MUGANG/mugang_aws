@@ -23,25 +23,29 @@ const panelTimetable = document.getElementById('panel-timetable');
 
 // 탭 전환 기능
 function switchTab(tabName) {
+    console.log('Switching to tab:', tabName);
     // 모든 탭 버튼 비활성화
     document.querySelectorAll('.sidebar-nav .nav-item').forEach(btn => btn.classList.remove('active'));
     // 모든 패널 숨김
-    document.querySelectorAll('.content-area .panel').forEach(panel => panel.style.display = 'none');
+    document.querySelectorAll('.content-area .panel').forEach(panel => {
+        panel.style.display = 'none';
+        panel.classList.remove('active');
+    });
     
-    // 선택된 탭 활성화
-    if (tabName === 'sugang') {
-        document.getElementById('tab-sugang').classList.add('active');
-        panelSugang.style.display = 'block';
-    } else if (tabName === 'certificate') {
-        document.getElementById('tab-certificate').classList.add('active');
-        document.getElementById('panel-certificate').style.display = 'block';
-    } else if (tabName === 'grades') {
-        document.getElementById('tab-grades').classList.add('active');
-        document.getElementById('panel-grades').style.display = 'block';
-        loadDetailedGrades();
-    } else if (tabName === 'profile') {
-        document.getElementById('tab-profile').classList.add('active');
-        document.getElementById('panel-profile').style.display = 'block';
+    const targetPanel = document.getElementById(`panel-${tabName}`);
+    const targetTab = document.getElementById(`tab-${tabName}`);
+
+    if (targetPanel && targetTab) {
+        targetTab.classList.add('active');
+        targetPanel.style.display = 'block';
+        targetPanel.classList.add('active');
+        
+        // 특정 탭 진입 시 초기화 로직
+        if (tabName === 'grades') {
+            loadDetailedGrades();
+        }
+    } else {
+        console.error(`Tab or Panel not found for: ${tabName}`);
     }
 }
 
@@ -102,7 +106,7 @@ window.confirmEnrollment = async function(id) {
     if(!isEnrollmentActive) return alert("현재는 수강신청 기간이 아닙니다.");
     if(!confirm("이 과목을 최종 수강신청하시겠습니까?")) return;
     try {
-        const res = await fetch(`http://localhost:8000/api/v1/enrollments/${id}/confirm`, {
+        const res = await fetch(`/api/v1/enrollments/${id}/confirm`, {
             method: 'PUT'
         });
         if(res.ok) {
@@ -117,7 +121,7 @@ window.confirmEnrollment = async function(id) {
 window.dropEnrollment = async function(id) {
     if(!confirm("정말로 이 과목을 철회/삭제하시겠습니까?")) return;
     try {
-        const res = await fetch(`http://localhost:8000/api/v1/enrollments/${id}`, {
+        const res = await fetch(`/api/v1/enrollments/${id}`, {
             method: 'DELETE'
         });
         if(res.ok) {
@@ -147,7 +151,7 @@ window.addToCart = async function(id) {
     }
     
     try {
-        const response = await fetch('http://localhost:8000/api/v1/enrollments', {
+        const response = await fetch('/api/v1/enrollments', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -211,7 +215,7 @@ function renderTimetable() {
 async function loadEnrollments() {
     if (!userId) return;
     try {
-        const response = await fetch(`http://localhost:8000/api/v1/enrollments/${userId}`);
+        const response = await fetch(`/api/v1/enrollments/${userId}`);
         if (response.ok) {
             const data = await response.json();
             cartData = data.schedules;
@@ -226,7 +230,7 @@ async function loadEnrollments() {
 // 수강신청 기간 확인
 async function checkEnrollmentPeriod() {
     try {
-        const res = await fetch('http://localhost:8000/api/v1/admin/config/enrollment-period');
+        const res = await fetch('/api/v1/admin/config/enrollment-period');
         if(res.ok) {
             const data = await res.json();
             const banner = document.getElementById('enrollment-period-banner');
@@ -254,7 +258,7 @@ async function checkEnrollmentPeriod() {
 async function loadStats() {
     if (!userId) return;
     try {
-        const res = await fetch(`http://localhost:8000/api/v1/student/${userId}/stats`);
+        const res = await fetch(`/api/v1/student/${userId}/stats`);
         if(res.ok) {
             const data = await res.json();
             const statTotal = document.getElementById('stat-total');
@@ -270,7 +274,7 @@ async function loadStats() {
 // 공지사항 불러오기
 async function loadNotices() {
     try {
-        const res = await fetch('http://localhost:8000/api/v1/notices');
+        const res = await fetch('/api/v1/notices');
         if(res.ok) {
             const data = await res.json();
             const listDiv = document.getElementById('student-notice-list');
@@ -288,7 +292,7 @@ async function loadNotices() {
 // 상세 성적 데이터 불러오기
 async function loadDetailedGrades() {
     try {
-        const res = await fetch(`http://localhost:8000/api/v1/enrollments/${userId}`);
+        const res = await fetch(`/api/v1/enrollments/${userId}`);
         if(res.ok) {
             const data = await res.json();
             const tbody = document.getElementById('student-grade-tbody');
@@ -317,7 +321,7 @@ async function updateProfile() {
     if(!name || !major) return alert("수정할 값을 입력하세요.");
 
     try {
-        const res = await fetch(`http://localhost:8000/api/v1/users/${userId}`, {
+        const res = await fetch(`/api/v1/users/${userId}`, {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({name, major})

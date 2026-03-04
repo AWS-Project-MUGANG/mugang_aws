@@ -1,6 +1,8 @@
 import logging
+import os
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
 from sqlalchemy.orm import Session
@@ -131,9 +133,9 @@ def is_enrollment_period_active(db: Session):
         print(f"Period check error: {e}")
         return True
 
-@app.get("/")
-def read_root():
-    return {"message": "무강대학교 AI 학사행정 API 서버가 실행 중입니다."}
+@app.get("/api/health")
+def api_status():
+    return {"message": "무강대학교 AI 학사행정 API 서버가 정상 실행 중입니다."}
 
 @app.post("/api/v1/auth/register", status_code=status.HTTP_201_CREATED)
 def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
@@ -523,6 +525,12 @@ def set_enrollment_period(req: EnrollmentPeriodRequest, db: Session = Depends(ge
     
     db.commit()
     return {"message": "수강신청 기간이 설정되었습니다."}
+
+# --- 프론트엔드 정적 파일 서빙 ---
+# (API 경로를 먼저 정의한 후 마지막에 마운트해야 API가 우선순위를 가집니다)
+frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
+if os.path.exists(frontend_dir):
+    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn

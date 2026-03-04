@@ -160,7 +160,7 @@
 
             try {
                 // 1. 통계 불러오기
-                const statRes = await fetch('http://localhost:8000/api/v1/admin/stats');
+                const statRes = await fetch('/api/v1/admin/stats');
                 if (statRes.ok) {
                     const stats = await statRes.json();
                     document.getElementById('admin-total-enrollments').innerText = stats.total_enrollments + " 건";
@@ -169,7 +169,7 @@
                 }
 
                 // 2. 수강생 명단 불러오기
-                const enrollRes = await fetch('http://localhost:8000/api/v1/admin/enrollments');
+                const enrollRes = await fetch('/api/v1/admin/enrollments');
                 if (enrollRes.ok) {
                     const data = await enrollRes.json();
                     const tbody = document.getElementById('admin-roster-tbody');
@@ -213,7 +213,7 @@
             if (!title || !content) return alert("제목과 내용을 입력하세요.");
 
             try {
-                const res = await fetch('http://localhost:8000/api/v1/notices', {
+                const res = await fetch('/api/v1/notices', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ title, content })
@@ -232,7 +232,7 @@
             if (!score) return alert("점수를 입력하세요.");
 
             try {
-                const res = await fetch('http://localhost:8000/api/v1/admin/grades', {
+                const res = await fetch('/api/v1/admin/grades', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -247,7 +247,7 @@
         }
         async function loadEnrollmentPeriod() {
             try {
-                const res = await fetch('http://localhost:8000/api/v1/admin/config/enrollment-period');
+                const res = await fetch('/api/v1/admin/config/enrollment-period');
                 if (res.ok) {
                     const data = await res.json();
                     if (data.start && data.end) {
@@ -267,7 +267,7 @@
             if (!start || !end) return alert("시작 및 종료 시간을 선택하세요.");
 
             try {
-                const res = await fetch('http://localhost:8000/api/v1/admin/config/enrollment-period', {
+                const res = await fetch('/api/v1/admin/config/enrollment-period', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
