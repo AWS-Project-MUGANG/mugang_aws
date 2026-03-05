@@ -116,8 +116,8 @@
                         localStorage.setItem('access_token', data.access_token);
                         localStorage.setItem('role', data.role);
 
-                        alert(data.role === 'admin' ? '강사(관리자) 권한으로 로그인 되었습니다.' : '학생 권한으로 로그인 되었습니다.');
-                        window.location.href = data.role === 'admin' ? '../admin/dashboard.html' : '../student/dashboard.html';
+                        alert(data.role === 'STAFF' ? '강사(관리자) 권한으로 로그인 되었습니다.' : '학생 권한으로 로그인 되었습니다.');
+                        window.location.href = data.role === 'STAFF' ? '../admin/dashboard.html' : '../student/dashboard.html';
                     } else {
                         const errorData = await response.json();
                         alert(`로그인 실패: ${errorData.detail}`);

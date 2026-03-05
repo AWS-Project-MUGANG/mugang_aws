@@ -16,18 +16,15 @@ class Depart(Base):
 
 
 class User(Base):
-    __tablename__ = "users"
+    __tablename__ = "user_tb"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    student_id = Column(String(50), unique=True, nullable=False)  # loginid
-    password_hash = Column(String(255), nullable=False)
-    name = Column(String(50), nullable=False)
-    major = Column(String(100), nullable=False)
-    degree_level = Column(String(20))
-    language = Column(String(10), default="ko")
-    grade = Column(Integer, nullable=True)  # 학년 (STUDENT일 때만 유의미)
-    status = Column(String(20), default="enrolled")
-    role = Column(String(20), default="student")
+    user_no = Column(BigInteger, primary_key=True, autoincrement=True)
+    loginid = Column(String(50), unique=True, nullable=False)
+    password = Column(String(255), nullable=False)
+    role = Column(SAEnum('STUDENT', 'STAFF', name='role_enum'), nullable=False)
+    user_name = Column(String(50), nullable=False)
+    grade = Column(Integer, nullable=True)
+    user_status = Column(SAEnum('재학', '휴학', '재직', '퇴직', name='status_enum'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -35,7 +32,7 @@ class ChatSession(Base):
     __tablename__ = "chat_sessions"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id"))
+    user_id = Column(BigInteger, ForeignKey("user_tb.user_no"))
     title = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -92,7 +89,7 @@ class Form(Base):
     __tablename__ = "forms"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id"))
+    user_id = Column(BigInteger, ForeignKey("user_tb.user_no"))
     form_type = Column(String(50), nullable=False)
     form_data = Column(JSON, nullable=False)
     status = Column(String(20), default="draft")
@@ -113,7 +110,7 @@ class Enrollment(Base):
     __tablename__ = "enrollments"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id"))
+    user_id = Column(BigInteger, ForeignKey("user_tb.user_no"))
     lecture_id = Column(Integer, ForeignKey("lecture_tb.lecture_id"))
     status = Column(String(20), default="cart")
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -127,7 +124,7 @@ class Grade(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     enrollment_id = Column(String, ForeignKey("enrollments.id"), unique=True)
-    user_id = Column(String, ForeignKey("users.id"))
+    user_id = Column(BigInteger, ForeignKey("user_tb.user_no"))
     score = Column(Integer)  # 0-100
     grade_letter = Column(String(5))  # A+, B0, etc.
     created_at = Column(DateTime, default=datetime.utcnow)

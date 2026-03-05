@@ -141,42 +141,43 @@ def read_root():
 @app.post("/api/v1/auth/register", status_code=status.HTTP_201_CREATED)
 def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
     """학생 회원가입 (비밀번호 암호화 후 DB 저장)"""
-    db_user = db.query(models.User).filter(models.User.student_id == req.student_id).first()
+    db_user = db.query(models.User).filter(models.User.loginid == req.student_id).first()
     if db_user:
         raise HTTPException(status_code=400, detail="이미 가입된 학번입니다.")
 
     hashed_password = get_password_hash(req.password)
+    db_role = "STAFF" if req.role == "admin" else "STUDENT"
     new_user = models.User(
-        student_id=req.student_id,
-        password_hash=hashed_password,
-        name=req.name,
-        major=req.major,
-        role=req.role
+        loginid=req.student_id,
+        password=hashed_password,
+        user_name=req.name,
+        role=db_role,
+        user_status="재직" if db_role == "STAFF" else "재학"
     )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    return {"message": "회원가입이 정상적으로 완료되었습니다.", "user_id": new_user.id}
+    return {"message": "회원가입이 정상적으로 완료되었습니다.", "user_id": new_user.user_no}
 
 
 @app.post("/api/v1/auth/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
-    """학번과 비밀번호로 로그인 (JWT 발급)"""
+    """학번/사번과 비밀번호로 로그인 (JWT 발급)"""
     logger.info(f"로그인 시도: {req.student_id}")
 
-    user = db.query(models.User).filter(models.User.student_id == req.student_id).first()
+    user = db.query(models.User).filter(models.User.loginid == req.student_id).first()
     if not user:
-        raise HTTPException(status_code=401, detail="존재하지 않는 학번입니다.")
-    if not verify_password(req.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="존재하지 않는 학번/사번입니다.")
+    if not verify_password(req.password, user.password):
         raise HTTPException(status_code=401, detail="비밀번호가 올바르지 않습니다.")
 
-    access_token = create_access_token(data={"sub": user.student_id, "id": user.id})
+    access_token = create_access_token(data={"sub": user.loginid, "id": user.user_no})
 
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user_id": user.id,
-        "name": user.name,
+        "user_id": user.user_no,
+        "name": user.user_name,
         "role": user.role
     }
 
@@ -244,7 +245,7 @@ def create_enrollment(req: EnrollmentRequest, db: Session = Depends(get_db)):
     if not is_enrollment_period_active(db):
         raise HTTPException(status_code=403, detail="현재는 수강신청 기간이 아닙니다.")
 
-    user = db.query(models.User).filter(models.User.id == req.user_id).first()
+    user = db.query(models.User).filter(models.User.user_no == req.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="사용자 정보를 찾을 수 없습니다.")
 
@@ -365,12 +366,12 @@ def get_admin_enrollments(db: Session = Depends(get_db)):
                 "count": lec.count if lec else 0,
                 "students": []
             }
-        user = db.query(models.User).filter(models.User.id == en.user_id).first()
+        user = db.query(models.User).filter(models.User.user_no == en.user_id).first()
         summary[subject_key]["students"].append({
             "enrollment_id": en.id,
             "user_id": en.user_id,
-            "student_id": user.student_id if user else "Unknown",
-            "name": user.name if user else "Unknown"
+            "student_id": user.loginid if user else "Unknown",
+            "name": user.user_name if user else "Unknown"
         })
     return {"classes": list(summary.values())}
 
@@ -378,7 +379,7 @@ def get_admin_enrollments(db: Session = Depends(get_db)):
 @app.get("/api/v1/admin/stats")
 def get_admin_stats(db: Session = Depends(get_db)):
     """관리자용: 대시보드 통계 데이터"""
-    student_count = db.query(models.User).filter(models.User.degree_level == "undergraduate").count()
+    student_count = db.query(models.User).filter(models.User.role == "STUDENT").count()
     enrollment_count = db.query(models.Enrollment).count()
     form_count = db.query(models.Form).count()
     return {
@@ -458,13 +459,13 @@ def get_all_forms(db: Session = Depends(get_db)):
     forms = db.query(models.Form).order_by(models.Form.created_at.desc()).all()
     result = []
     for f in forms:
-        user = db.query(models.User).filter(models.User.id == f.user_id).first()
+        user = db.query(models.User).filter(models.User.user_no == f.user_id).first()
         result.append({
             "id": f.id,
             "form_type": f.form_type,
             "status": f.status,
-            "student_id": user.student_id if user else "Unknown",
-            "name": user.name if user else "Unknown",
+            "student_id": user.loginid if user else "Unknown",
+            "name": user.user_name if user else "Unknown",
             "created_at": f.created_at.isoformat()
         })
     return {"forms": result}
@@ -530,12 +531,11 @@ def submit_grade(req: GradeRequest, db: Session = Depends(get_db)):
 # --- 사용자 정보 수정 ---
 @app.put("/api/v1/users/{user_id}")
 def update_user_profile(user_id: str, req: UserUpdateRequest, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.id == user_id).first()
+    user = db.query(models.User).filter(models.User.user_no == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
-    if req.name:   user.name = req.name
-    if req.major:  user.major = req.major
-    if req.status: user.status = req.status
+    if req.name:   user.user_name = req.name
+    if req.status: user.user_status = req.status
     db.commit()
     return {"message": "프로필 정보가 수정되었습니다."}
 
