@@ -1,0 +1,464 @@
+{
+  "waitlist_tb": [
+    {
+      "name": "id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "lecture_id",
+      "type": "INTEGER"
+    },
+    {
+      "name": "user_id",
+      "type": "BIGINT"
+    },
+    {
+      "name": "status",
+      "type": "VARCHAR(20)"
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP"
+    }
+  ],
+  "notification_tb": [
+    {
+      "name": "id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "user_id",
+      "type": "BIGINT"
+    },
+    {
+      "name": "message",
+      "type": "VARCHAR(255)"
+    },
+    {
+      "name": "is_read",
+      "type": "BOOLEAN"
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP"
+    }
+  ],
+  "document_metadata": [
+    {
+      "name": "id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "doc_type",
+      "type": "VARCHAR(50)"
+    },
+    {
+      "name": "title",
+      "type": "VARCHAR(255)"
+    },
+    {
+      "name": "source_url",
+      "type": "VARCHAR(500)"
+    },
+    {
+      "name": "updated_at",
+      "type": "TIMESTAMP"
+    }
+  ],
+  "chat_sessions": [
+    {
+      "name": "id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "user_id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "title",
+      "type": "VARCHAR(255)"
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP"
+    },
+    {
+      "name": "updated_at",
+      "type": "TIMESTAMP"
+    }
+  ],
+  "forms": [
+    {
+      "name": "id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "user_id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "form_type",
+      "type": "VARCHAR(50)"
+    },
+    {
+      "name": "form_data",
+      "type": "JSON"
+    },
+    {
+      "name": "status",
+      "type": "VARCHAR(20)"
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP"
+    }
+  ],
+  "chat_messages": [
+    {
+      "name": "id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "session_id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "role",
+      "type": "VARCHAR(10)"
+    },
+    {
+      "name": "content",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "tokens_used",
+      "type": "INTEGER"
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP"
+    }
+  ],
+  "user_tb": [
+    {
+      "name": "user_no",
+      "type": "BIGINT"
+    },
+    {
+      "name": "loginid",
+      "type": "VARCHAR(50)"
+    },
+    {
+      "name": "password",
+      "type": "VARCHAR(255)"
+    },
+    {
+      "name": "role",
+      "type": "VARCHAR(7)"
+    },
+    {
+      "name": "user_name",
+      "type": "VARCHAR(50)"
+    },
+    {
+      "name": "grade",
+      "type": "INTEGER"
+    },
+    {
+      "name": "user_status",
+      "type": "VARCHAR(2)"
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP"
+    },
+    {
+      "name": "birth_date",
+      "type": "DATE"
+    },
+    {
+      "name": "email",
+      "type": "VARCHAR(150)"
+    },
+    {
+      "name": "phone",
+      "type": "VARCHAR(20)"
+    },
+    {
+      "name": "is_first_login",
+      "type": "BOOLEAN"
+    },
+    {
+      "name": "dept_no",
+      "type": "BIGINT"
+    }
+  ],
+  "depart_tb": [
+    {
+      "name": "dept_no",
+      "type": "BIGINT"
+    },
+    {
+      "name": "college",
+      "type": "VARCHAR(50)"
+    },
+    {
+      "name": "depart",
+      "type": "VARCHAR(255)"
+    },
+    {
+      "name": "office_tel",
+      "type": "VARCHAR(50)"
+    }
+  ],
+  "grades": [
+    {
+      "name": "id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "enrollment_id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "user_id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "score",
+      "type": "INTEGER"
+    },
+    {
+      "name": "grade_letter",
+      "type": "VARCHAR(5)"
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP"
+    }
+  ],
+  "notices": [
+    {
+      "name": "id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "title",
+      "type": "VARCHAR(255)"
+    },
+    {
+      "name": "content",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "author_id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP"
+    }
+  ],
+  "system_configs": [
+    {
+      "name": "key",
+      "type": "VARCHAR(100)"
+    },
+    {
+      "name": "value",
+      "type": "VARCHAR(255)"
+    }
+  ],
+  "enroll_tb": [
+    {
+      "name": "enroll_no",
+      "type": "BIGINT"
+    },
+    {
+      "name": "loginid",
+      "type": "BIGINT"
+    },
+    {
+      "name": "lecture_id",
+      "type": "BIGINT"
+    },
+    {
+      "name": "sche_no",
+      "type": "BIGINT"
+    },
+    {
+      "name": "enroll_status",
+      "type": "VARCHAR(9)"
+    },
+    {
+      "name": "createdat",
+      "type": "TIMESTAMP"
+    }
+  ],
+  "overenroll_tb": [
+    {
+      "name": "over_no",
+      "type": "BIGINT"
+    },
+    {
+      "name": "user_no",
+      "type": "BIGINT"
+    },
+    {
+      "name": "lecture_id",
+      "type": "BIGINT"
+    },
+    {
+      "name": "sche_no",
+      "type": "BIGINT"
+    },
+    {
+      "name": "reason",
+      "type": "VARCHAR(255)"
+    },
+    {
+      "name": "loginid",
+      "type": "VARCHAR(50)"
+    }
+  ],
+  "schedule_tb": [
+    {
+      "name": "sche_no",
+      "type": "INTEGER"
+    },
+    {
+      "name": "lecture_id",
+      "type": "INTEGER"
+    },
+    {
+      "name": "day_of_week",
+      "type": "CHAR(1)"
+    },
+    {
+      "name": "start_min",
+      "type": "INTEGER"
+    },
+    {
+      "name": "end_min",
+      "type": "INTEGER"
+    },
+    {
+      "name": "start_time",
+      "type": "TIME"
+    },
+    {
+      "name": "end_time",
+      "type": "TIME"
+    },
+    {
+      "name": "classroom",
+      "type": "VARCHAR(50)"
+    }
+  ],
+  "enrollments": [
+    {
+      "name": "id",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "user_id",
+      "type": "BIGINT"
+    },
+    {
+      "name": "lecture_id",
+      "type": "INTEGER"
+    },
+    {
+      "name": "status",
+      "type": "VARCHAR(20)"
+    },
+    {
+      "name": "created_at",
+      "type": "TIMESTAMP"
+    }
+  ],
+  "enrollment_schedule": [
+    {
+      "name": "id",
+      "type": "INTEGER"
+    },
+    {
+      "name": "day_number",
+      "type": "INTEGER"
+    },
+    {
+      "name": "open_datetime",
+      "type": "TIMESTAMP"
+    },
+    {
+      "name": "close_datetime",
+      "type": "TIMESTAMP"
+    },
+    {
+      "name": "restriction_type",
+      "type": "VARCHAR(30)"
+    },
+    {
+      "name": "is_active",
+      "type": "BOOLEAN"
+    },
+    {
+      "name": "updated_at",
+      "type": "TIMESTAMP"
+    }
+  ],
+  "lecture_tb": [
+    {
+      "name": "lecture_id",
+      "type": "INTEGER"
+    },
+    {
+      "name": "course_no",
+      "type": "VARCHAR(20)"
+    },
+    {
+      "name": "subject",
+      "type": "VARCHAR(200)"
+    },
+    {
+      "name": "department",
+      "type": "VARCHAR(100)"
+    },
+    {
+      "name": "lec_grade",
+      "type": "VARCHAR(10)"
+    },
+    {
+      "name": "credit",
+      "type": "INTEGER"
+    },
+    {
+      "name": "professor",
+      "type": "VARCHAR(50)"
+    },
+    {
+      "name": "classroom",
+      "type": "VARCHAR(100)"
+    },
+    {
+      "name": "type",
+      "type": "VARCHAR(4)"
+    },
+    {
+      "name": "capacity",
+      "type": "INTEGER"
+    },
+    {
+      "name": "count",
+      "type": "INTEGER"
+    },
+    {
+      "name": "version",
+      "type": "INTEGER"
+    },
+    {
+      "name": "waitlist_capacity",
+      "type": "INTEGER"
+    }
+  ]
+}

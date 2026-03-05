@@ -8,9 +8,20 @@ let cartData = [];
 const userId = localStorage.getItem('user_id');
 
 // 수강신청 가능 여부 상태
-let isEnrollmentActive = true;
+let isEnrollmentActive = false; // Changed from true to false
 
-// DOM 요소 
+// 모달 디자인이 있을 경우 기본 alert()를 가로채어 예쁜 모달로 띄웁니다.
+const originalAlert = window.alert;
+window.alert = function(msg) {
+    if (typeof showCustomModal === 'function') {
+        const isError = msg.includes("실패") || msg.includes("오류") || msg.includes("아닙니다") || msg.includes("없습니다");
+        showCustomModal(isError ? "시스템 알림 (경고)" : "시스템 알림", msg, isError);
+    } else {
+        originalAlert(msg);
+    }
+};
+
+// DOM 요소
 const cartTbody = document.getElementById('cart-tbody');
 const sugangTbody = document.getElementById('sugang-tbody');
 const panelSugang = document.getElementById('panel-sugang');
@@ -60,16 +71,22 @@ async function loadCourseList() {
 function renderSugangList() {
     sugangTbody.innerHTML = '';
     courseList.forEach(item => {
+        const capacityText = `${item.count} / ${item.capacity}`;
+        let badge = '';
+        if (item.count >= item.capacity) {
+            badge = `<span style="background:#e53935; color:white; padding:2px 6px; border-radius:4px; font-size:0.8rem; margin-left:5px;">정원초과 (대기 가능)</span>`;
+        }
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${item.college || '-'}</td>
             <td>${item.department || '-'}</td>
-            <td>${item.subject}</td>
+            <td>${item.subject} ${badge}</td>
             <td>${item.type || '-'}</td>
             <td>${item.room || '-'}</td>
             <td>${item.credit}</td>
-            <td>${item.capacity}</td>
-            <td><button class="btn-apply" onclick="addToCart('${item.id}')">담기</button></td>
+            <td>${capacityText}</td>
+            <td><button class="btn-apply" onclick="addToCart('${item.id}')">${item.count >= item.capacity ? '대기하기' : '담기'}</button></td>
         `;
         sugangTbody.appendChild(tr);
     });
@@ -132,11 +149,53 @@ window.dropEnrollment = async function(id) {
             method: 'DELETE'
         });
         if(res.ok) {
-            alert("정상적으로 삭제되었습니다.");
+            alert("정상적으로 취소 처리 되었습니다.");
             loadEnrollments();
             loadStats();
+        } else {
+            const data = await res.json();
+            alert(`오류: ${data.detail}`);
         }
     } catch (e) { console.error(e); }
+};
+
+// AI 자동 추천 로직
+window.requestAIRecommend = async function() {
+    const pref = document.getElementById('aiPrefInput').value;
+    const loading = document.getElementById('aiLoadingIndicator');
+    
+    if(!userId) return alert('로그인이 필요합니다.');
+    
+    loading.style.display = 'block';
+
+    try {
+        const res = await fetch('/api/v1/student/ai/recommend', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: parseInt(userId),
+                preference: pref
+            })
+        });
+
+        const data = await res.json();
+        
+        if (res.ok) {
+            alert(data.message);
+            document.getElementById('aiRecommendModal').style.display = 'none';
+            document.getElementById('aiPrefInput').value = '';
+            
+            // 데이터 갱신
+            await loadEnrollments();
+        } else {
+            alert(`AI 추천 실패: ${data.detail}`);
+        }
+    } catch (error) {
+        console.error("AI req err:", error);
+        alert("AI 분석 시스템 응답이 지연되고 있습니다.");
+    } finally {
+        loading.style.display = 'none';
+    }
 };
 
 // 수강신청(DB 저장) 로직 연동

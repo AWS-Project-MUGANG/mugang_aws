@@ -25,6 +25,9 @@ class User(Base):
     user_name = Column(String(50), nullable=False)
     grade = Column(Integer, nullable=True)
     user_status = Column(SAEnum('재학', '휴학', '재직', '퇴직', name='status_enum'), nullable=False)
+    email = Column(String(150), unique=True, nullable=True)
+    phone = Column(String(20), nullable=True)
+    is_first_login = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -65,6 +68,7 @@ class Lecture(Base):
     type = Column(SAEnum('전공필수', '전공선택', '교양필수', '교양선택', name='lecture_category'))
     capacity = Column(Integer, default=0)
     count = Column(Integer, default=0)
+    waitlist_capacity = Column(Integer, default=10) # 큐 정원
     version = Column(Integer, default=0)
 
     schedules = relationship("ScheduleTb", back_populates="lecture", cascade="all, delete-orphan")
@@ -139,6 +143,30 @@ class Notice(Base):
     title = Column(String(255), nullable=False)
     content = Column(String, nullable=False)
     author_id = Column(BigInteger, ForeignKey("user_tb.user_no"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Waitlist(Base):
+    """수강신청 대기열 (FIFO) 테이블"""
+    __tablename__ = "waitlist_tb"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    lecture_id = Column(Integer, ForeignKey("lecture_tb.lecture_id", ondelete="CASCADE"), index=True)
+    user_id = Column(BigInteger, ForeignKey("user_tb.user_no", ondelete="CASCADE"), index=True)
+    status = Column(String(20), default="WAITING") # WAITING, PROMOTED, CANCELED
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    lecture = relationship("Lecture")
+
+
+class Notification(Base):
+    """사용자 인앱 알림 테이블"""
+    __tablename__ = "notification_tb"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(BigInteger, ForeignKey("user_tb.user_no", ondelete="CASCADE"), index=True)
+    message = Column(String(255), nullable=False)
+    is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

@@ -1,7 +1,8 @@
 import logging
 import os
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List
@@ -9,6 +10,13 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from jose import jwt
 from datetime import datetime, timedelta, timezone
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, BigInteger
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship
+from sqlalchemy.types import Enum as SAEnum
+from sqlalchemy.pool import StaticPool
+import uuid
+import csv
+import io
 
 # DB 연동
 from database import engine, get_db, Base
@@ -56,13 +64,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
+app.mount("/static", StaticFiles(directory=frontend_path), name="static")
+
 # ---- API 요청/응답 데이터 모델 (Pydantic) ----
-class RegisterRequest(BaseModel):
+class FirstSetupRequest(BaseModel):
     student_id: str
-    password: str
+    token: str
+    new_password: str
+    email: str
+    phone: str
+
+class FindIdRequest(BaseModel):
     name: str
-    major: str
-    role: Optional[str] = "student"
+    email: str
+
+class FindPwRequest(BaseModel):
+    student_id: str
+    email: str
 
 class LoginRequest(BaseModel):
     student_id: str
@@ -196,31 +215,11 @@ def api_status():
 
 @app.get("/")
 def read_root():
-    return {"message": "무강대학교 AI 학사행정 API 서버가 실행 중입니다."}
+    return RedirectResponse(url="/static/pages/auth/login.html")
 
 
 # --- 인증 ---
-@app.post("/api/v1/auth/register", status_code=status.HTTP_201_CREATED)
-def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
-    """학생 회원가입 (비밀번호 암호화 후 DB 저장)"""
-    db_user = db.query(models.User).filter(models.User.loginid == req.student_id).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="이미 가입된 학번입니다.")
-
-    hashed_password = get_password_hash(req.password)
-    db_role = "STAFF" if req.role == "admin" else "STUDENT"
-    new_user = models.User(
-        loginid=req.student_id,
-        password=hashed_password,
-        user_name=req.name,
-        role=db_role,
-        user_status="재직" if db_role == "STAFF" else "재학"
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return {"message": "회원가입이 정상적으로 완료되었습니다.", "user_id": new_user.user_no}
-
+# 기존 학생 자율 회원가입 제거: 관리자가 1234 초기비번으로 일괄등록 한다고 가정합니다.
 
 @app.post("/api/v1/auth/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
@@ -233,15 +232,99 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     if not verify_password(req.password, user.password):
         raise HTTPException(status_code=401, detail="비밀번호가 올바르지 않습니다.")
 
+    # 초기 접속(비밀번호가 1234일 때 등)인 경우
+    if user.is_first_login:
+        # 제한된 짧은 수명의 토큰 발급 (필수 정보 수정용)
+        update_token = create_access_token(data={"sub": user.loginid, "type": "first_setup"})
+        return {
+            "require_setup": True,
+            "setup_token": update_token,
+            "message": "초기 비밀번호를 변경하고 개인정보(이메일, 연락처)를 등록해야 합니다."
+        }
+
     access_token = create_access_token(data={"sub": user.loginid, "id": user.user_no})
 
     return {
+        "require_setup": False,
         "access_token": access_token,
         "token_type": "bearer",
         "user_id": user.user_no,
         "name": user.user_name,
         "role": user.role
     }
+
+@app.post("/api/v1/auth/first-setup")
+def first_setup(req: FirstSetupRequest, db: Session = Depends(get_db)):
+    """초기 로그인 시 비밀번호와 이메일/전락처 수정 처리"""
+    try:
+        payload = jwt.decode(req.token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "first_setup" or payload.get("sub") != req.student_id:
+            raise HTTPException(status_code=401, detail="유효하지 않은 설정 토큰입니다.")
+    except Exception:
+        raise HTTPException(status_code=401, detail="유효하지 않거나 만료된 설정 토큰입니다.")
+
+    user = db.query(models.User).filter(models.User.loginid == req.student_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자 정보를 찾을 수 없습니다.")
+
+    # 중복 이메일 기입 차단
+    existing_email = db.query(models.User).filter(models.User.email == req.email, models.User.user_no != user.user_no).first()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="이미 등록된 이메일입니다.")
+
+    user.password = get_password_hash(req.new_password)
+    user.email = req.email
+    user.phone = req.phone
+    user.is_first_login = False
+    
+    db.commit()
+    return {"message": "초기 설정이 완료되었습니다. 새로운 비밀번호로 로그인해주세요."}
+
+
+@app.post("/api/v1/auth/find-id")
+def find_id(req: FindIdRequest, db: Session = Depends(get_db)):
+    """이름과 이메일로 학번(ID) 찾기 (마스킹 처리)"""
+    user = db.query(models.User).filter(
+        models.User.user_name == req.name,
+        models.User.email == req.email
+    ).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="일치하는 가입 정보가 없습니다.")
+    
+    # 학번 마스킹 예: 2023***12
+    id_str = user.loginid
+    if len(id_str) > 4:
+        masked_id = id_str[:4] + "*" * (len(id_str) - 6) + id_str[-2:]
+    else:
+        masked_id = id_str
+        
+    return {"message": "학번 조회가 완료되었습니다.", "student_id": masked_id}
+
+
+@app.post("/api/v1/auth/find-pw")
+def find_pw(req: FindPwRequest, db: Session = Depends(get_db)):
+    """학번과 이메일로 임시 비밀번호 발급"""
+    user = db.query(models.User).filter(
+        models.User.loginid == req.student_id,
+        models.User.email == req.email
+    ).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="일치하는 가입 정보가 없습니다.")
+    
+    # 임시 비밀번호 발급
+    temp_pw = "temp1234!"
+    user.password = get_password_hash(temp_pw)
+    user.is_first_login = True  # 재설정 시 접속하면 강제로 또 비번 바꾸도록 함.
+    db.commit()
+    
+    return {
+        "message": "임시 비밀번호가 발급되었습니다. (실제 환경에서는 이메일로 전송됩니다.)", 
+        "temp_password": temp_pw
+    }
+
+
+
+# ---- 이하 생략: 수강신청 관련 엔드포인트 진행 ----
 
 
 # --- 강의 (lecture_tb) ---
@@ -303,7 +386,7 @@ def get_user_enrollments(user_id: str, db: Session = Depends(get_db)):
 
 @app.post("/api/v1/enrollments")
 def create_enrollment(req: EnrollmentRequest, db: Session = Depends(get_db)):
-    """수강신청 1건 저장 (정원 체크 + 낙관적 락)"""
+    """수강신청 1건 저장 (정원 체크 + 대기열 편입 + 낙관적 락)"""
     if not is_enrollment_period_active(db):
         raise HTTPException(status_code=403, detail="현재는 수강신청 기간이 아닙니다.")
 
@@ -315,22 +398,60 @@ def create_enrollment(req: EnrollmentRequest, db: Session = Depends(get_db)):
     if not access["allowed"]:
         raise HTTPException(status_code=403, detail=access["reason"])
 
-    # 중복 수강신청 검사
-    existing = db.query(models.Enrollment).filter(
+    # 중복 수강/대기인지 검사
+    existing_enrollment = db.query(models.Enrollment).filter(
         models.Enrollment.user_id == req.user_id,
         models.Enrollment.lecture_id == req.lecture_id
     ).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="이미 신청(장바구니 담기)이 완료된 과목입니다.")
+    if existing_enrollment:
+        raise HTTPException(status_code=400, detail="이미 신청(수강/장바구니)이 완료된 과목입니다.")
+        
+    existing_waitlist = db.query(models.Waitlist).filter(
+        models.Waitlist.user_id == req.user_id,
+        models.Waitlist.lecture_id == req.lecture_id,
+        models.Waitlist.status == "WAITING"
+    ).first()
+    if existing_waitlist:
+        raise HTTPException(status_code=400, detail="이미 대기열에 등록된 과목입니다.")
 
-    # lecture_tb 조회 및 정원 체크
     lecture = db.query(models.Lecture).filter(models.Lecture.lecture_id == req.lecture_id).first()
     if not lecture:
         raise HTTPException(status_code=404, detail="강의 정보를 찾을 수 없습니다.")
-    if lecture.capacity > 0 and lecture.count >= lecture.capacity:
-        raise HTTPException(status_code=409, detail="수강 정원이 초과되었습니다.")
 
-    # 낙관적 락: version 확인 후 count 증가
+    # 1. 정원이 꽉 찼는지 확인
+    if lecture.capacity > 0 and lecture.count >= lecture.capacity:
+        # 1-1. 대기열 정원 체크
+        current_waitlist_count = db.query(models.Waitlist).filter(
+            models.Waitlist.lecture_id == req.lecture_id,
+            models.Waitlist.status == "WAITING"
+        ).count()
+        
+        if current_waitlist_count >= lecture.waitlist_capacity:
+            raise HTTPException(status_code=409, detail="수강 정원 및 대기열 정원이 모두 초과되었습니다.")
+            
+        # 1-2. 대기열 등록 (Insert Waitlist)
+        new_waitlist = models.Waitlist(
+            lecture_id=req.lecture_id,
+            user_id=req.user_id,
+            status="WAITING"
+        )
+        db.add(new_waitlist)
+        db.commit()
+        
+        # 내 순번 도출
+        my_order = db.query(models.Waitlist).filter(
+            models.Waitlist.lecture_id == req.lecture_id,
+            models.Waitlist.status == "WAITING",
+            models.Waitlist.created_at <= new_waitlist.created_at
+        ).count()
+        
+        return {
+            "message": f"수강 정원이 초과되어 대기열에 등록되었습니다. (나의 대기: {my_order}번)", 
+            "status": "waitlisted",
+            "waitlist_order": my_order
+        }
+
+    # 2. 정원 여유 시 낙관적 락으로 수강신청 저장
     original_version = lecture.version
     updated_rows = db.query(models.Lecture).filter(
         models.Lecture.lecture_id == req.lecture_id,
@@ -344,12 +465,12 @@ def create_enrollment(req: EnrollmentRequest, db: Session = Depends(get_db)):
     new_enrollment = models.Enrollment(
         user_id=req.user_id,
         lecture_id=req.lecture_id,
-        status="cart"
+        status="enrolled"
     )
     db.add(new_enrollment)
     db.commit()
     db.refresh(new_enrollment)
-    return {"message": "정상적으로 수강신청 테이블에 저장되었습니다.", "enrollment_id": new_enrollment.id}
+    return {"message": "수강신청이 성공적으로 확정되었습니다.", "enrollment_id": new_enrollment.id, "status": "enrolled"}
 
 
 @app.put("/api/v1/enrollments/{enrollment_id}/confirm")
@@ -368,18 +489,54 @@ def confirm_enrollment(enrollment_id: str, db: Session = Depends(get_db)):
 
 @app.delete("/api/v1/enrollments/{enrollment_id}")
 def drop_enrollment(enrollment_id: str, db: Session = Depends(get_db)):
-    """수강 철회 (lecture_tb count 감소)"""
+    """수강 철회 및 대기열 승급(Promotion) 로직 (트랜잭션 롤백 포함)"""
     en = db.query(models.Enrollment).filter(models.Enrollment.id == enrollment_id).first()
     if not en:
         raise HTTPException(status_code=404, detail="해당 수강 내역이 없습니다.")
-
-    # count 감소
-    db.query(models.Lecture).filter(models.Lecture.lecture_id == en.lecture_id).update(
-        {"count": models.Lecture.count - 1}
-    )
+        
+    lecture_id = en.lecture_id
+    lecture = db.query(models.Lecture).filter(models.Lecture.lecture_id == lecture_id).first()
+    
+    # 1. 수강 내역 삭제
     db.delete(en)
+    
+    # 2. 대기열 승급 로직 적용
+    promoted_waitlist = db.query(models.Waitlist).filter(
+        models.Waitlist.lecture_id == lecture_id,
+        models.Waitlist.status == "WAITING"
+    ).order_by(models.Waitlist.created_at.asc()).first()
+    
+    if promoted_waitlist:
+        # 대기자를 승급시키므로 lecture count는 줄이지 않고 그대로 유지
+        promoted_waitlist.status = "PROMOTED"
+        
+        new_en = models.Enrollment(
+            user_id=promoted_waitlist.user_id,
+            lecture_id=lecture_id,
+            status="enrolled"
+        )
+        db.add(new_en)
+        
+        # 알림(Notification) 생성
+        noti = models.Notification(
+            user_id=promoted_waitlist.user_id,
+            message=f"[{lecture.subject}] 과목의 대기열 순서가 도래하여 수강신청이 확정되었습니다!"
+        )
+        db.add(noti)
+    else:
+        # 대기자가 없으면 lecture count만 감소 (낙관적 락으로 꼬이지 않게 보호)
+        original_version = lecture.version
+        updated_rows = db.query(models.Lecture).filter(
+            models.Lecture.lecture_id == lecture_id,
+            models.Lecture.version == original_version
+        ).update({"count": models.Lecture.count - 1, "version": original_version + 1})
+        
+        if updated_rows == 0:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="처리 중 충돌이 발생했습니다.")
+
     db.commit()
-    return {"message": "수강 철회가 완료되었습니다."}
+    return {"message": "정상적으로 수강을 철회했습니다."}
 
 
 # --- 학생 통계 ---
@@ -415,14 +572,29 @@ def get_student_stats(user_id: str, db: Session = Depends(get_db)):
     }
 
 
-# --- 관리자: 수강 현황 ---
+# --- 관리자: 수강 현황 및 대시보드 ---
 @app.get("/api/v1/admin/enrollments")
-def get_admin_enrollments(db: Session = Depends(get_db)):
-    """관리자용: 개설 과목별 수강생 전체 현황"""
-    enrollments = db.query(models.Enrollment).all()
+def get_admin_enrollments(
+    college: Optional[str] = None,
+    grade: Optional[str] = None,
+    lecture_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """관리자용: 개설 과목별 수강생 전체 현황 (필터링 추가)"""
+    query = db.query(models.Enrollment)
+    
+    # 조인을 활용한 동적 필터링 처리 (예시 수준)
+    if lecture_id:
+        query = query.filter(models.Enrollment.lecture_id == lecture_id)
+        
+    enrollments = query.all()
     summary = {}
     for en in enrollments:
         lec = en.lecture
+        # 필터링 적용 여부 체크 로직 등 보완 가능
+        if college and lec and lec.department != college:
+            continue
+            
         subject_key = lec.subject if lec else "Unknown"
         if subject_key not in summary:
             summary[subject_key] = {
@@ -447,15 +619,85 @@ def get_admin_stats(db: Session = Depends(get_db)):
     """관리자용: 대시보드 통계 데이터"""
     student_count = db.query(models.User).filter(models.User.role == "STUDENT").count()
     enrollment_count = db.query(models.Enrollment).count()
-    form_count = db.query(models.Form).count()
+    waitlist_count = db.query(models.Waitlist).count()
+
     return {
         "total_students": student_count,
         "total_enrollments": enrollment_count,
-        "pending_forms": form_count,
+        "total_waitlists": waitlist_count
+    }
+
+
+@app.post("/api/v1/admin/courses/batch")
+async def upload_courses_batch(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """CSV 파일을 통한 다중 교과목 일괄 생성 API (1,000건 Bulk Insert)"""
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="CSV 파일만 업로드 가능합니다.")
+        
+    content = await file.read()
+    stringio = io.StringIO(content.decode("utf-8"))
+    reader = csv.DictReader(stringio)
+    
+    lectures_to_insert = []
+    # CSV 헤더 예시: subject, department, classroom, professor, type, credit, capacity, waitlist_capacity
+    for row in reader:
+        lectures_to_insert.append(
+            models.Lecture(
+                subject=row.get("subject"),
+                department=row.get("department"),
+                classroom=row.get("classroom"),
+                professor=row.get("professor"),
+                type=row.get("type"),
+                credit=int(row.get("credit", 3)),
+                capacity=int(row.get("capacity", 40)),
+                waitlist_capacity=int(row.get("waitlist_capacity", 10))
+            )
+        )
+        
+    # 메모리에 모아둔 데이터를 한 번에 밀어넣음
+    db.add_all(lectures_to_insert)
+    db.commit()
+    
+    return {"message": f"성공적으로 {len(lectures_to_insert)}개의 강의가 일괄 개설되었습니다."}
+
+
+class AIRecommendRequest(BaseModel):
+    user_id: int
+    preference: str
+    
+@app.post("/api/v1/student/ai/recommend")
+def get_ai_recommendation(req: AIRecommendRequest, db: Session = Depends(get_db)):
+    """AI를 활용한 학생 맞춤형 과목 추천 (Bedrock Mocking) 및 장바구니 자동 적재"""
+    user = db.query(models.User).filter(models.User.user_no == req.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자 정보를 찾을 수 없습니다.")
+        
+    # 실제 환경에서는 boto3로 Bedrock Titan/Claude를 호출해 아래 로직 수행
+    # 현재는 전체 강의 중 랜덤하게 또는 Mock 로직으로 응답한다고 가정.
+    all_lectures = db.query(models.Lecture).limit(5).all()
+    recommended_ids = [lec.lecture_id for lec in all_lectures[:3]] # 3개 추천
+    
+    inserted_count = 0
+    for l_id in recommended_ids:
+        # 이미 담겼는지 확인
+        existing = db.query(models.Enrollment).filter(
+            models.Enrollment.user_id == req.user_id,
+            models.Enrollment.lecture_id == l_id
+        ).first()
+        if not existing:
+            new_en = models.Enrollment(user_id=req.user_id, lecture_id=l_id, status="cart")
+            db.add(new_en)
+            inserted_count += 1
+            
+    db.commit()
+    
+    return {
+        "message": f"AI 분석 결과에 따라 {inserted_count}개의 과목이 장바구니에 담겼습니다.",
+        "recommended_count": len(recommended_ids),
         "popular_chat_keywords": [
             {"keyword": "수강신청", "count": 145},
             {"keyword": "휴학", "count": 89},
-            {"keyword": "장학금", "count": 56},
+            {"keyword": "기숙사", "count": 56},
             {"keyword": "졸업요건", "count": 34}
         ]
     }

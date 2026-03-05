@@ -142,6 +142,53 @@
                     </section>
                 </div>
 
+                <!-- AI 수강 추천 팝업 (Floating Button) -->
+                <button onclick="document.getElementById('aiRecommendModal').style.display='flex'"
+                    style="position:fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; border-radius: 50%; background-color: #ff9800; color: white; border: none; font-size: 24px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 100;">
+                    🤖
+                </button>
+
+                <!-- AI 수강 추천 모달 -->
+                <div class="modal-overlay" id="aiRecommendModal"
+                    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+                    <div class="modal-content"
+                        style="background:white; padding:30px; border-radius:12px; width:400px; text-align:center;">
+                        <h2 style="color:#ff9800; margin-bottom:10px;">🤖 AI 맞춤 과목 추천</h2>
+                        <p style="font-size:0.9rem; color:#666; margin-bottom:20px;">
+                            학생의 전공과 이수 학점을 분석하여<br>이번 학기 최적의 시간표를 장바구니에 담아드립니다.
+                        </p>
+                        <textarea id="aiPrefInput" placeholder="요청사항 (예: 금요일 공강 만들어줘, 오전 수업 위주로 설계해줘)"
+                            style="width:100%; height:80px; padding:10px; margin-bottom:20px; border:1px solid #ddd; border-radius:4px; resize:none;"></textarea>
+
+                        <div id="aiLoadingIndicator"
+                            style="display:none; margin-bottom:20px; color:#ff9800; font-weight:bold;">
+                            <span class="spinner"
+                                style="display:inline-block; width:20px; height:20px; border:3px solid #f3f3f3; border-top:3px solid #ff9800; border-radius:50%; animation: spin 1s linear infinite;"></span>
+                            AI가 일정을 분석하는 중입니다...
+                        </div>
+
+                        <div style="display:flex; gap:10px; justify-content:center;">
+                            <button onclick="requestAIRecommend()" class="btn-approve"
+                                style="background:#ff9800; border:none; padding:10px 20px; color:white; border-radius:4px; cursor:pointer; font-weight:bold;">추천
+                                받기 (자동 담기)</button>
+                            <button onclick="document.getElementById('aiRecommendModal').style.display='none'"
+                                style="background:#ccc; border:none; padding:10px 20px; color:#333; border-radius:4px; cursor:pointer;">닫기</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- CSS Keyframes for Spinner -->
+                <style>
+                    @keyframes spin {
+                        0% {
+                            transform: rotate(0deg);
+                        }
+
+                        100% {
+                            transform: rotate(360deg);
+                        }
+                    }
+                </style>
+
                 <!-- 시간표 탭 패널 -->
                 <div id="panel-timetable" class="panel" style="display: none;">
                     <div class="timetable-wrapper">
@@ -330,6 +377,41 @@
 
     <!-- 스크립트 연결 -->
     <script src="../../js/app.js"></script>
+
+    <script>
+        function showCustomModal(title, message, isError = false) {
+            const modal = document.getElementById('customModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const modalMessage = document.getElementById('modalMessage');
+
+            modalTitle.innerText = title;
+            modalMessage.innerHTML = message.replace(/\n/g, '<br>');
+
+            if (isError) {
+                modalTitle.style.color = '#c62828';
+            } else {
+                modalTitle.style.color = '#1565c0';
+            }
+
+            modal.style.display = 'flex';
+        }
+
+        function closeCustomModal() {
+            document.getElementById('customModal').style.display = 'none';
+        }
+    </script>
+
+    <!-- 커스텀 공통 모달 UI -->
+    <div class="modal-overlay" id="customModal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+        <div class="modal-content"
+            style="background:white; padding:30px; border-radius:8px; width:400px; text-align:center; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
+            <h2 id="modalTitle" style="margin-bottom:15px; font-size:1.5rem;">알림</h2>
+            <p id="modalMessage" style="font-size:1rem; color:#444; margin-bottom:25px; line-height:1.5;"></p>
+            <button onclick="closeCustomModal()" class="btn-approve"
+                style="background:#555; width:100%; padding:10px; font-size:1.1rem;">확인</button>
+        </div>
+    </div>
 </body>
 
 </html>

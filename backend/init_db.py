@@ -12,15 +12,14 @@ def init_db():
     
     # 1. 학생 계정 생성
     student_id = "22517717"
-    if not db.query(models.User).filter(models.User.student_id == student_id).first():
+    if not db.query(models.User).filter(models.User.loginid == student_id).first():
         hashed_pw = get_password_hash("1234")
         student = models.User(
-            student_id=student_id,
-            password_hash=hashed_pw,
-            name="임정현",
-            major="아동가족복지학과",
-            degree_level="undergraduate",
-            status="enrolled"
+            loginid=student_id,
+            password=hashed_pw,
+            user_name="임정현",
+            role="STUDENT",
+            user_status="재학"
         )
         db.add(student)
         print(f"학생 계정 생성 완료: {student_id} / 1234")
@@ -29,15 +28,14 @@ def init_db():
 
     # 2. 관리자/교수 계정 생성
     admin_id = "Admin-0012"
-    if not db.query(models.User).filter(models.User.student_id == admin_id).first():
+    if not db.query(models.User).filter(models.User.loginid == admin_id).first():
         hashed_pw = get_password_hash("1234")
         admin = models.User(
-            student_id=admin_id,
-            password_hash=hashed_pw,
-            name="김무강 교수",
-            major="사회과학대학",
-            degree_level="professor",
-            status="active"
+            loginid=admin_id,
+            password=hashed_pw,
+            user_name="김무강 교수",
+            role="STAFF",
+            user_status="재직"
         )
         db.add(admin)
         print(f"관리자 계정 생성 완료: {admin_id} / 1234")

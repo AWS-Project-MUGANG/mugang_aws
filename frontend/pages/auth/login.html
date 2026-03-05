@@ -70,6 +70,58 @@
         .btn-login:hover {
             background-color: #121858;
         }
+
+        .auth-links {
+            margin-top: 15px;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+
+        .auth-links a {
+            color: var(--primary-color);
+            text-decoration: none;
+            margin: 0 10px;
+        }
+
+        .auth-links span {
+            color: #ccc;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .modal-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: var(--primary-color);
+        }
+
+        .modal-desc {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
     </style>
 </head>
 
@@ -80,17 +132,74 @@
         <form id="loginForm" onsubmit="handleLogin(event)">
             <div class="input-group">
                 <label for="studentId">학번/사번</label>
-                <input type="text" id="studentId" placeholder="학번을 입력하세요" required>
+                <input type="text" id="studentId" placeholder="학번을 입력하세요 (예: 20240001)" required>
             </div>
             <div class="input-group">
                 <label for="password">비밀번호</label>
-                <input type="password" id="password" placeholder="비밀번호를 입력하세요" required>
+                <input type="password" id="password" placeholder="비밀번호 입력 (초기: 1234)" required>
             </div>
             <button type="submit" class="btn-login">로그인</button>
         </form>
-        <div style="margin-top: 15px; text-align: center;">
-            <a href="register.html" style="color: var(--primary-color); text-decoration: none; font-size: 0.9rem;">학생/교수
-                회원가입 하기</a>
+        <div class="auth-links">
+            <a href="#" onclick="openFindModal('id')">학번/사번 찾기</a>
+            <span>|</span>
+            <a href="#" onclick="openFindModal('pw')">비밀번호 찾기</a>
+        </div>
+    </div>
+
+    <!-- First Setup Modal -->
+    <div class="modal-overlay" id="firstSetupModal">
+        <div class="modal-content">
+            <div class="modal-title">🚨 초기 비밀번호 및 개인정보 등록</div>
+            <div class="modal-desc">
+                초기 비밀번호로 접속하셨습니다. 안전한 서비스 이용을 위해 <b>새 비밀번호</b>와 <b>연락처/이메일</b>을 반드시 등록해주셔야 합니다.
+            </div>
+            <form id="setupForm" onsubmit="handleFirstSetup(event)">
+                <input type="hidden" id="setupToken">
+                <input type="hidden" id="setupStudentId">
+                <div class="input-group">
+                    <label>새로운 비밀번호</label>
+                    <input type="password" id="newPassword" required>
+                </div>
+                <div class="input-group">
+                    <label>이메일</label>
+                    <input type="email" id="email" required placeholder="example@mugang.ac.kr">
+                </div>
+                <div class="input-group">
+                    <label>전화번호</label>
+                    <input type="text" id="phone" required placeholder="010-0000-0000">
+                </div>
+                <button type="submit" class="btn-login" style="background-color: #28a745;">정보 업데이트 및 로그인</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Find ID/PW Modal -->
+    <div class="modal-overlay" id="findModal">
+        <div class="modal-content">
+            <div class="modal-title" id="findModalTitle">계정 복구</div>
+            <form id="findForm" onsubmit="handleFind(event)">
+                <input type="hidden" id="findType"> <!-- 'id' or 'pw' -->
+
+                <div class="input-group" id="findNameGroup" style="display: none;">
+                    <label>이름</label>
+                    <input type="text" id="findName" placeholder="이름을 입력하세요">
+                </div>
+                <div class="input-group" id="findIdGroup" style="display: none;">
+                    <label>학번/사번</label>
+                    <input type="text" id="findStudentId" placeholder="학번을 입력하세요">
+                </div>
+                <div class="input-group">
+                    <label>등록된 이메일</label>
+                    <input type="email" id="findEmail" required placeholder="가입 시 등록한 이메일">
+                </div>
+
+                <button type="submit" class="btn-login" id="findSubmitBtn">요청하기</button>
+                <div style="margin-top: 10px; text-align: center;">
+                    <a href="#" onclick="document.getElementById('findModal').style.display='none'"
+                        style="font-size: 0.9rem; color: #666;">취소</a>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -108,24 +217,110 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ student_id: sid, password: pwd })
                     });
+                    const data = await response.json();
 
                     if (response.ok) {
-                        const data = await response.json();
-                        // 로컬 스토리지에 사용자 정보 저장
-                        localStorage.setItem('user_id', data.user_id);
-                        localStorage.setItem('access_token', data.access_token);
-                        localStorage.setItem('role', data.role);
+                        if (data.require_setup) {
+                            // First Setup Flow 
+                            document.getElementById('setupToken').value = data.setup_token;
+                            document.getElementById('setupStudentId').value = sid;
+                            document.getElementById('firstSetupModal').style.display = 'flex';
+                        } else {
+                            // Normal Login Flow
+                            localStorage.setItem('user_id', data.user_id);
+                            localStorage.setItem('access_token', data.access_token);
+                            localStorage.setItem('role', data.role);
 
-                        alert(data.role === 'STAFF' ? '강사(관리자) 권한으로 로그인 되었습니다.' : '학생 권한으로 로그인 되었습니다.');
-                        window.location.href = data.role === 'STAFF' ? '../admin/dashboard.html' : '../student/dashboard.html';
+                            window.location.href = data.role === 'STAFF' ? '../admin/dashboard.html' : '../student/dashboard.html';
+                        }
                     } else {
-                        const errorData = await response.json();
-                        alert(`로그인 실패: ${errorData.detail}`);
+                        alert(`로그인 실패: ${data.detail}`);
                     }
                 } catch (error) {
                     console.error('Login error:', error);
                     alert('서버 연결에 실패했습니다. 백엔드가 켜져있는지 확인해주세요.');
                 }
+            }
+        }
+
+        async function handleFirstSetup(e) {
+            e.preventDefault();
+            const sid = document.getElementById('setupStudentId').value;
+            const token = document.getElementById('setupToken').value;
+            const pwd = document.getElementById('newPassword').value;
+            const email = document.getElementById('email').value;
+            const phone = document.getElementById('phone').value;
+
+            try {
+                const response = await fetch('/api/v1/auth/first-setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        student_id: sid,
+                        token: token,
+                        new_password: pwd,
+                        email: email,
+                        phone: phone
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    alert('비밀번호가 성공적으로 업데이트 되었습니다. 새 비밀번호로 다시 로그인 해주세요.');
+                    window.location.reload();
+                } else {
+                    alert(`오류: ${data.detail}`);
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function openFindModal(type) {
+            document.getElementById('findModal').style.display = 'flex';
+            document.getElementById('findType').value = type;
+
+            if (type === 'id') {
+                document.getElementById('findModalTitle').innerText = '학번/사번 찾기';
+                document.getElementById('findNameGroup').style.display = 'block';
+                document.getElementById('findIdGroup').style.display = 'none';
+                document.getElementById('findSubmitBtn').innerText = '학번 찾기';
+            } else {
+                document.getElementById('findModalTitle').innerText = '임시 비밀번호 발급';
+                document.getElementById('findNameGroup').style.display = 'none';
+                document.getElementById('findIdGroup').style.display = 'block';
+                document.getElementById('findSubmitBtn').innerText = '비밀번호 발급';
+            }
+        }
+
+        async function handleFind(e) {
+            e.preventDefault();
+            const type = document.getElementById('findType').value;
+            const email = document.getElementById('findEmail').value;
+
+            try {
+                if (type === 'id') {
+                    const name = document.getElementById('findName').value;
+                    const res = await fetch('/api/v1/auth/find-id', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, email })
+                    });
+                    const data = await res.json();
+                    if (res.ok) alert(`조회된 학번: ${data.student_id}`);
+                    else alert(data.detail);
+                } else {
+                    const sid = document.getElementById('findStudentId').value;
+                    const res = await fetch('/api/v1/auth/find-pw', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ student_id: sid, email })
+                    });
+                    const data = await res.json();
+                    if (res.ok) alert(`${data.message}\n임시 비밀번호: ${data.temp_password}`);
+                    else alert(data.detail);
+                }
+            } catch (e) {
+                console.log(e);
             }
         }
     </script>

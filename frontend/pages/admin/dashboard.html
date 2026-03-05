@@ -88,159 +88,197 @@
                             <div class="stat-number" id="admin-pending-forms">0 건</div>
                         </div>
                         <div class="admin-stat-card">
-                            <p>현재 가입된 학생 수</p>
-                            <div class="stat-number" id="admin-total-students">0 명</div>
-                        </div>
-                    </div>
-
-                    <!-- 수강신청 기간 설정 영역 추가 -->
-                    <section class="list-section"
-                        style="margin-bottom: 30px; background: #e3f2fd; padding: 20px; border-radius: 8px; border: 1px solid #90caf9;">
-                        <h3>📅 수강신청 기간 설정</h3>
-                        <div style="display: flex; gap: 15px; margin-top: 10px; align-items: flex-end;">
-                            <div style="flex: 1;">
-                                <label style="font-size: 0.9rem; color: #555;">시작 일시</label>
-                                <input type="datetime-local" id="period-start"
-                                    style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                            <div class="admin-stat-card" style="background:var(--secondary-color); color:white;">
+                                <p>현재 가입된 학생 수</p>
+                                <div class="stat-number" id="admin-total-students" style="color:white;">0 명</div>
                             </div>
-                            <div style="flex: 1;">
-                                <label style="font-size: 0.9rem; color: #555;">종료 일시</label>
-                                <input type="datetime-local" id="period-end"
-                                    style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                        </div>
+
+                        <!-- 수강신청 기간 설정 영역 시작 -->
+                        <section class="list-section"
+                            style="margin-bottom: 30px; background: #e3f2fd; padding: 20px; border-radius: 8px; border: 1px solid #90caf9;">
+                            <h3>📅 수강신청 기간 설정</h3>
+                            <div style="display: flex; gap: 15px; margin-top: 10px; align-items: flex-end;">
+                                <div style="flex: 1;">
+                                    <label style="font-size: 0.9rem; color: #555;">시작 일시</label>
+                                    <input type="datetime-local" id="period-start"
+                                        style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                                </div>
+                                <div style="flex: 1;">
+                                    <label style="font-size: 0.9rem; color: #555;">종료 일시</label>
+                                    <input type="datetime-local" id="period-end"
+                                        style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                                </div>
+                                <button class="btn-approve" onclick="saveEnrollmentPeriod()" style="height: 38px;">기간
+                                    저장</button>
                             </div>
-                            <button class="btn-approve" onclick="saveEnrollmentPeriod()" style="height: 38px;">기간
-                                저장</button>
-                        </div>
-                        <p id="current-period-info" style="margin-top: 10px; font-weight: bold; color: #1565c0;"></p>
-                    </section>
+                            <p id="current-period-info" style="margin-top: 10px; font-weight: bold; color: #1565c0;">
+                            </p>
+                        </section>
 
-                    <!-- 공지사항 등록 영역 추가 -->
-                    <section class="list-section"
-                        style="margin-bottom: 30px; background: #f9f9f9; padding: 20px; border-radius: 8px;">
-                        <h3>📣 신규 공지사항 등록</h3>
-                        <div style="display: flex; gap: 10px; margin-top: 10px;">
-                            <input type="text" id="notice-title" placeholder="공지 제목"
-                                style="flex: 2; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
-                            <input type="text" id="notice-content" placeholder="공지 내용 요약"
-                                style="flex: 4; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
-                            <button class="btn-approve" onclick="postNotice()" style="flex: 1; white-space: nowrap;">공지
-                                올리기</button>
-                        </div>
-                    </section>
-
-                    <!-- 강사/관리자 전용 데이터 테이블 (추가 구축 예정 영역) -->
-                    <section class="list-section">
-                        <h2>대학 전체 강좌별 수강생 명단 & 성적 입력</h2>
-                        <div class="table-wrapper">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>과목명</th>
-                                        <th>학번</th>
-                                        <th>이름</th>
-                                        <th>성적 입력 (0~100)</th>
-                                        <th>등급 (A~F)</th>
-                                        <th>저장</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="admin-roster-tbody">
-                                    <!-- JS 동적 렌더링 -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </section>
-                </div> <!-- End of panel-dashboard -->
-
-                <!-- 수업 개설 관리 탭 -->
-                <div id="panel-courses" class="panel" style="display: none;">
-                    <section class="list-section"
-                        style="margin-bottom: 30px; background: white; padding: 20px; border-radius: 8px;">
-                        <h3>📝 새로운 강의 개설</h3>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
-                            <div><label>과목명</label><input type="text" id="course-subject"
-                                    style="width:100%; padding:8px;"></div>
-                            <div><label>단과대학</label><input type="text" id="course-college"
-                                    style="width:100%; padding:8px;"></div>
-                            <div><label>개설학과</label><input type="text" id="course-department"
-                                    style="width:100%; padding:8px;"></div>
-                            <div><label>수강구분 (전공필수 등)</label><input type="text" id="course-type"
-                                    style="width:100%; padding:8px;"></div>
-                            <div><label>강의실</label><input type="text" id="course-room" style="width:100%; padding:8px;">
+                        <!-- 공지사항 등록 영역 추가 -->
+                        <section class="list-section"
+                            style="margin-bottom: 30px; background: #f9f9f9; padding: 20px; border-radius: 8px;">
+                            <h3>📣 신규 공지사항 등록</h3>
+                            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                <input type="text" id="notice-title" placeholder="공지 제목"
+                                    style="flex: 2; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                                <input type="text" id="notice-content" placeholder="공지 내용 요약"
+                                    style="flex: 4; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                                <button class="btn-approve" onclick="postNotice()"
+                                    style="flex: 1; white-space: nowrap;">공지
+                                    올리기</button>
                             </div>
-                            <div><label>학점 / 정원</label>
-                                <div style="display: flex; gap:10px;">
-                                    <input type="number" id="course-credit" placeholder="학점" value="3"
+                        </section>
+
+                        <!-- 강사/관리자 전용 데이터 테이블 (추가 구축 예정 영역) -->
+                        <section class="list-section">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                                <h2>대학 전체 강좌별 수강생 명단 & 성적 입력</h2>
+                                <!-- 필터 영역 -->
+                                <div style="display:flex; gap:10px; margin-bottom:10px;">
+                                    <select id="filter-college" onchange="loadAdminEnrollments()"
+                                        style="padding:5px; border-radius:4px; border:1px solid #ccc;">
+                                        <option value="">단과대 전체</option>
+                                        <option value="공과대학">공과대학</option>
+                                        <option value="자연과학대학">자연과학대학</option>
+                                        <option value="인문과학대학">인문과학대학</option>
+                                    </select>
+                                    <select id="filter-grade" onchange="loadAdminEnrollments()"
+                                        style="padding:5px; border-radius:4px; border:1px solid #ccc;">
+                                        <option value="">전학년</option>
+                                        <option value="1">1학년</option>
+                                        <option value="2">2학년</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="table-wrapper">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>과목명</th>
+                                            <th>학번</th>
+                                            <th>이름</th>
+                                            <th>성적 입력 (0~100)</th>
+                                            <th>등급 (A~F)</th>
+                                            <th>저장</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="admin-roster-tbody">
+                                        <!-- JS 동적 렌더링 -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div> <!-- End of panel-dashboard -->
+
+                    <div id="panel-courses" class="panel" style="display: none;">
+
+                        <!-- CSV 일괄 업로드 (Batch Insert) 영역 -->
+                        <section class="list-section"
+                            style="margin-bottom: 20px; background: #fff3e0; padding: 20px; border-radius: 8px; border: 1px solid #ffcc80;">
+                            <h3 style="color:#e65100;">📁 다중 강의 CSV 일괄 개설 (Batch Upload)</h3>
+                            <p style="font-size: 0.9rem; color: #666; margin-bottom: 15px;">관리자가 엑셀로 미리 작성해둔 시간표
+                                데이터(.csv)를 한 번에 업로드하여 트랜잭션 과부하 없이 생성합니다.</p>
+                            <form id="batchUploadForm" onsubmit="handleBatchUpload(event)"
+                                style="display:flex; gap: 10px; align-items:center;">
+                                <input type="file" id="csvFileInput" accept=".csv" required
+                                    style="padding: 10px; border: 1px solid #ccc; border-radius: 4px; flex: 1; background:white;">
+                                <button type="submit" class="btn-approve" style="background:#ef6c00;">CSV 파일 서버로
+                                    전송</button>
+                            </form>
+                        </section>
+
+                        <section class="list-section"
+                            style="margin-bottom: 30px; background: white; padding: 20px; border-radius: 8px;">
+                            <h3>📝 개별 새로운 강의 개설</h3>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
+                                <div><label>과목명</label><input type="text" id="course-subject"
+                                        style="width:100%; padding:8px;"></div>
+                                <div><label>단과대학</label><input type="text" id="course-college"
+                                        style="width:100%; padding:8px;"></div>
+                                <div><label>개설학과</label><input type="text" id="course-department"
+                                        style="width:100%; padding:8px;"></div>
+                                <div><label>수강구분 (전공필수 등)</label><input type="text" id="course-type"
+                                        style="width:100%; padding:8px;"></div>
+                                <div><label>강의실</label><input type="text" id="course-room"
                                         style="width:100%; padding:8px;">
-                                    <input type="number" id="course-capacity" placeholder="정원" value="40"
+                                </div>
+                                <div><label>학점 / 정원</label>
+                                    <div style="display: flex; gap:10px;">
+                                        <input type="number" id="course-credit" placeholder="학점" value="3"
+                                            style="width:100%; padding:8px;">
+                                        <input type="number" id="course-capacity" placeholder="정원" value="40"
+                                            style="width:100%; padding:8px;">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <h4 style="margin-top:20px; color:#555;">시간표 설정 (최대 2개 시간대 지원)</h4>
+                            <div style="display: flex; gap: 15px; margin-top: 10px; align-items: flex-end;">
+                                <div style="flex:1;">
+                                    <label>요일 1</label>
+                                    <select id="course-day-1" style="width:100%; padding:8px;">
+                                        <option value="">선택안함</option>
+                                        <option value="1">월요일</option>
+                                        <option value="2">화요일</option>
+                                        <option value="3">수요일</option>
+                                        <option value="4">목요일</option>
+                                        <option value="5">금요일</option>
+                                    </select>
+                                </div>
+                                <div style="flex:1;">
+                                    <label>시간 1 (0:9시~, 1:10시~...)</label>
+                                    <input type="number" id="course-time-1" min="0" max="9"
+                                        style="width:100%; padding:8px;">
+                                </div>
+                                <div style="flex:1;">
+                                    <label>요일 2</label>
+                                    <select id="course-day-2" style="width:100%; padding:8px;">
+                                        <option value="">선택안함</option>
+                                        <option value="1">월요일</option>
+                                        <option value="2">화요일</option>
+                                        <option value="3">수요일</option>
+                                        <option value="4">목요일</option>
+                                        <option value="5">금요일</option>
+                                    </select>
+                                </div>
+                                <div style="flex:1;">
+                                    <label>시간 2 (0:9시~, 1:10시~...)</label>
+                                    <input type="number" id="course-time-2" min="0" max="9"
                                         style="width:100%; padding:8px;">
                                 </div>
                             </div>
-                        </div>
+                            <button class="btn-approve" onclick="createAdminCourse()"
+                                style="margin-top: 20px; width: 100%; padding: 12px; font-size: 1.1rem;">강의 모듈
+                                생성</button>
+                        </section>
 
-                        <h4 style="margin-top:20px; color:#555;">시간표 설정 (최대 2개 시간대 지원)</h4>
-                        <div style="display: flex; gap: 15px; margin-top: 10px; align-items: flex-end;">
-                            <div style="flex:1;">
-                                <label>요일 1</label>
-                                <select id="course-day-1" style="width:100%; padding:8px;">
-                                    <option value="">선택안함</option>
-                                    <option value="1">월요일</option>
-                                    <option value="2">화요일</option>
-                                    <option value="3">수요일</option>
-                                    <option value="4">목요일</option>
-                                    <option value="5">금요일</option>
-                                </select>
+                        <section class="list-section">
+                            <h2>개설된 전체 강의 목록</h2>
+                            <div class="table-wrapper">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>단과대학</th>
+                                            <th>개설학과</th>
+                                            <th>과목명</th>
+                                            <th>분류</th>
+                                            <th>강의실</th>
+                                            <th>학점</th>
+                                            <th>정원</th>
+                                            <th>관리</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="admin-courses-tbody">
+                                        <!-- JS 동적 렌더링 -->
+                                    </tbody>
+                                </table>
                             </div>
-                            <div style="flex:1;">
-                                <label>시간 1 (0:9시~, 1:10시~...)</label>
-                                <input type="number" id="course-time-1" min="0" max="9"
-                                    style="width:100%; padding:8px;">
-                            </div>
-                            <div style="flex:1;">
-                                <label>요일 2</label>
-                                <select id="course-day-2" style="width:100%; padding:8px;">
-                                    <option value="">선택안함</option>
-                                    <option value="1">월요일</option>
-                                    <option value="2">화요일</option>
-                                    <option value="3">수요일</option>
-                                    <option value="4">목요일</option>
-                                    <option value="5">금요일</option>
-                                </select>
-                            </div>
-                            <div style="flex:1;">
-                                <label>시간 2 (0:9시~, 1:10시~...)</label>
-                                <input type="number" id="course-time-2" min="0" max="9"
-                                    style="width:100%; padding:8px;">
-                            </div>
-                        </div>
-                        <button class="btn-approve" onclick="createAdminCourse()"
-                            style="margin-top: 20px; width: 100%; padding: 12px; font-size: 1.1rem;">강의 모듈 생성</button>
-                    </section>
+                        </section>
+                    </div> <!-- End of panel-courses -->
 
-                    <section class="list-section">
-                        <h2>개설된 전체 강의 목록</h2>
-                        <div class="table-wrapper">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>단과대학</th>
-                                        <th>개설학과</th>
-                                        <th>과목명</th>
-                                        <th>분류</th>
-                                        <th>강의실</th>
-                                        <th>학점</th>
-                                        <th>정원</th>
-                                        <th>관리</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="admin-courses-tbody">
-                                    <!-- JS 동적 렌더링 -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </section>
-                </div> <!-- End of panel-courses -->
-
-            </div>
+                </div>
         </main>
     </div>
 
@@ -258,14 +296,31 @@
                 if (statRes.ok) {
                     const stats = await statRes.json();
                     document.getElementById('admin-total-enrollments').innerText = stats.total_enrollments + " 건";
-                    document.getElementById('admin-pending-forms').innerText = stats.pending_forms + " 건";
+                    document.getElementById('admin-pending-forms').innerText = stats.total_waitlists + " 명 대기중";
                     document.getElementById('admin-total-students').innerText = stats.total_students + " 명";
                 }
 
-                // 2. 수강생 명단 불러오기 (교수일 경우 본인 과목만 필터)
-                const role = localStorage.getItem('role');
-                const userId = localStorage.getItem('user_id');
-                const enrollUrl = role === 'admin' && userId ? `/api/v1/admin/enrollments?professor_id=${userId}` : '/api/v1/admin/enrollments';
+                // 2. 수강생 명단 불러오기 (초기 로드)
+                loadAdminEnrollments();
+            } catch (err) {
+                console.error("Admin dashboard load error:", err);
+            }
+
+            // 신규 기능: 관리자 강의 목록 로드
+            loadAdminCourses();
+        });
+
+        async function loadAdminEnrollments() {
+            const role = localStorage.getItem('role');
+            const userId = localStorage.getItem('user_id');
+            const college = document.getElementById('filter-college')?.value || '';
+            const grade = document.getElementById('filter-grade')?.value || '';
+
+            let enrollUrl = role === 'admin' && userId ? `/api/v1/admin/enrollments?professor_id=${userId}` : '/api/v1/admin/enrollments?';
+            if (college) enrollUrl += `&college=${college}`;
+            if (grade) enrollUrl += `&grade=${grade}`;
+
+            try {
                 const enrollRes = await fetch(enrollUrl);
                 if (enrollRes.ok) {
                     const data = await enrollRes.json();
@@ -273,7 +328,8 @@
                     tbody.innerHTML = '';
 
                     if (data.classes.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">신청된 수강 내역이 없습니다.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">조건에 일치하는 수강 내역이 없습니다.</td></tr>';
+                        return;
                     }
 
                     data.classes.forEach(cls => {
@@ -299,15 +355,9 @@
                         });
                     });
                 }
-            } catch (err) {
-                console.error("Admin dashboard load error:", err);
-            }
+            } catch (e) { console.error(e); }
+        }
 
-            // 신규 기능: 관리자 강의 목록 로드
-            loadAdminCourses();
-        });
-
-        // 탭 전환 기능
         function switchTab(tabName) {
             document.querySelectorAll('.sidebar-nav .nav-item').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.content-area .panel').forEach(panel => {
@@ -326,10 +376,40 @@
             }
         }
 
+        // --- 다중 강의 CSV 일괄 업로드 처리 ---
+        async function handleBatchUpload(e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('csvFileInput');
+            if (fileInput.files.length === 0) return showCustomModal("경고", "업로드할 CSV 파일을 선택해주세요.", true);
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/api/v1/admin/courses/batch', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    showCustomModal("성공", `일괄 등록이 완료되었습니다.\n${data.message}`);
+                    loadAdminCourses(); // 업로드 직후 테이블 갱신
+                    fileInput.value = ''; // 폼 초기화
+                } else {
+                    showCustomModal("업로드 실패", data.detail, true);
+                }
+            } catch (err) {
+                console.error(err);
+                showCustomModal("서버 오류", "일괄 업로드 중 시스템 오류가 발생했습니다.", true);
+            }
+        }
+
         async function postNotice() {
             const title = document.getElementById('notice-title').value;
             const content = document.getElementById('notice-content').value;
-            if (!title || !content) return alert("제목과 내용을 입력하세요.");
+            if (!title || !content) return showCustomModal("입력 오류", "제목과 내용을 모두 입력하세요.", true);
 
             try {
                 const res = await fetch('/api/v1/notices', {
@@ -338,7 +418,7 @@
                     body: JSON.stringify({ title, content })
                 });
                 if (res.ok) {
-                    alert("공지사항이 등록되었습니다.");
+                    showCustomModal("성공", "공지사항이 정상적으로 등록되었습니다.");
                     document.getElementById('notice-title').value = '';
                     document.getElementById('notice-content').value = '';
                 }
@@ -348,7 +428,7 @@
         async function submitGrade(enId, userId) {
             const score = document.getElementById(`score-${enId}`).value;
             const letter = document.getElementById(`letter-${enId}`).value;
-            if (!score) return alert("점수를 입력하세요.");
+            if (!score) return showCustomModal("입력 오류", "점수를 정확히 입력하세요.", true);
 
             try {
                 const res = await fetch('/api/v1/admin/grades', {
@@ -361,7 +441,7 @@
                         grade_letter: letter
                     })
                 });
-                if (res.ok) alert("성적이 성공적으로 등록되었습니다.");
+                if (res.ok) showCustomModal("입력 완료", "성적이 성공적으로 등록/수정되었습니다.");
             } catch (e) { console.error(e); }
         }
         async function loadEnrollmentPeriod() {
