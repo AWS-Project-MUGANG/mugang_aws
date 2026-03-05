@@ -31,27 +31,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
-class ChatSession(Base):
-    __tablename__ = "chat_sessions"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(BigInteger, ForeignKey("user_tb.user_no"))
-    title = Column(String(255))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    messages = relationship("ChatMessage", backref="session")
-
-
-class ChatMessage(Base):
-    __tablename__ = "chat_messages"
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    session_id = Column(String, ForeignKey("chat_sessions.id"))
-    role = Column(String(10), nullable=False)  # 'user' or 'assistant'
-    content = Column(String, nullable=False)
-    tokens_used = Column(Integer)
-    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Lecture(Base):
@@ -89,55 +69,25 @@ class ScheduleTb(Base):
     lecture = relationship("Lecture", back_populates="schedules")
 
 
-class Form(Base):
-    __tablename__ = "forms"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(BigInteger, ForeignKey("user_tb.user_no"))
-    form_type = Column(String(50), nullable=False)
-    form_data = Column(JSON, nullable=False)
-    status = Column(String(20), default="draft")
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class DocumentMetadata(Base):
-    __tablename__ = "document_metadata"
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    doc_type = Column(String(50), nullable=False)
-    title = Column(String(255), nullable=False)
-    source_url = Column(String(500))
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Enrollment(Base):
-    __tablename__ = "enrollments"
+    __tablename__ = "enroll_tb"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(BigInteger, ForeignKey("user_tb.user_no"))
+    id = Column("enroll_no", BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column("loginid", BigInteger, ForeignKey("user_tb.user_no"))
     lecture_id = Column(Integer, ForeignKey("lecture_tb.lecture_id"))
+    sche_no = Column(BigInteger, nullable=True)
+    enroll_status = Column(String(9), nullable=True)
     status = Column(String(20), default="cart")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column("createdat", DateTime, default=datetime.utcnow)
 
     lecture = relationship("Lecture", back_populates="enrollments")
-    grade = relationship("Grade", back_populates="enrollment", uselist=False)
-
-
-class Grade(Base):
-    __tablename__ = "grades"
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    enrollment_id = Column(String, ForeignKey("enrollments.id"), unique=True)
-    user_id = Column(BigInteger, ForeignKey("user_tb.user_no"))
-    score = Column(Integer)  # 0-100
-    grade_letter = Column(String(5))  # A+, B0, etc.
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    enrollment = relationship("Enrollment", back_populates="grade")
 
 
 class Notice(Base):
-    __tablename__ = "notices"
+    __tablename__ = "notice_tb"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     title = Column(String(255), nullable=False)
@@ -171,7 +121,7 @@ class Notification(Base):
 
 
 class SystemConfig(Base):
-    __tablename__ = "system_configs"
+    __tablename__ = "system_config_tb"
 
     key = Column(String(100), primary_key=True)
     value = Column(String(255), nullable=False)
@@ -179,7 +129,7 @@ class SystemConfig(Base):
 
 class EnrollmentSchedule(Base):
     """수강신청 일차별 기간 및 제한 설정"""
-    __tablename__ = "enrollment_schedule"
+    __tablename__ = "enroll_schedule_tb"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     day_number = Column(Integer, nullable=False)          # 1, 2, 3
