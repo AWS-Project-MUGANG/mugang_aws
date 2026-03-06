@@ -390,10 +390,6 @@ def get_lectures(db: Session = Depends(get_db)):
             }
             for s in lec.schedules
         ]
-        college = lec.depart.college if lec.depart else dept_college_map.get(lec.department)
-        # dept_no FK 연결 시 depart_tb의 공식 학과명 사용 (필터 일치를 위해)
-        department = lec.depart.depart if lec.depart else lec.department
-        
         # 1. FK 관계(depart)가 있으면 우선 사용 (가장 빠름)
         if lec.depart:
             college = lec.depart.college
@@ -404,6 +400,39 @@ def get_lectures(db: Session = Depends(get_db)):
                 dept_college_map = {d.depart: d.college for d in db.query(models.Depart).all()}
             department = lec.department
             college = dept_college_map.get(department)
+            
+            # PDF 약어 대응 하드코딩 (dept_college_map에 없을 때)
+            if not college and department:
+                fallback_mapping = {
+                    '특교유특초특': '사범대학', '수교화교': '사범대학', '물교지구': '사범대학', 
+                    '사범대': '사범대학', '영교': '사범대학', '역교': '사범대학', '일사': '사범대학',
+                    '국교': '사범대학', '지교': '사범대학', '유교': '사범대학',
+                    '자전융합': '자유전공학부', '자유전공': '자유전공학부', '공공': '공공인재대학', 
+                    '글경': '글로벌경영대학', '글로벌경영': '글로벌경영대학',
+                    '사과': '사회과학대학', '사회대': '사회과학대학', '보건': '보건바이오대학', 
+                    '디예': '디자인예술대학', '재활': '재활과학대학', '간호': '간호대학', 
+                    '체육': '체육레저학부', '문콘': '문화콘텐츠학부', '문화콘텐츠': '문화콘텐츠학부',
+                    'IT·공과': 'IT·공과대학', '글로컬': '글로컬라이프대학', '재과대': '재활과학대학',
+                    '대학전체': '교양대학'
+                }
+                college = fallback_mapping.get(department)
+                if not college:
+                    for k, v in fallback_mapping.items():
+                        if k in department:
+                            college = v
+                            break
+                            
+                # 그럼에도 불구하고 매핑이 없으면 '전공'/'학'/'디지털' 같은 형태이므로 '융합/연계전공' 처리
+                if not college:
+                    if '전공' in department or '창업학' in department or '인문' in department or '디지털미디어' in department or '관광' in department:
+                        college = '연계/융합대학'
+                    else:
+                        college = '기타대학'
+                            
+        # 강의실 '-' 처리
+        classroom = lec.classroom
+        if not classroom or classroom.strip() == '-' or classroom.strip() == '':
+            classroom = "미지정"
 
         result.append({
             "lecture_id": lec.lecture_id,
@@ -414,7 +443,7 @@ def get_lectures(db: Session = Depends(get_db)):
             "lec_grade": lec.lec_grade,
             "credit": lec.credit,
             "professor": lec.professor,
-            "classroom": lec.classroom,
+            "classroom": classroom,
             "type": lec.type,
             "capacity": lec.capacity,
             "count": lec.count,
@@ -772,9 +801,19 @@ async def upload_courses_pdf(file: UploadFile = File(...), db: Session = Depends
                 table = page.extract_table()
                 if not table: continue
                 
+                current_grade = ""
+                current_type = ""
                 for row in table[1:]:
                     try:
-                        c_no = row[3].strip()
+                        if len(row) < 10:
+                            continue
+                        
+                        c_no = row[3]
+                        if not c_no: continue
+                        c_no = c_no.strip()
+                        if not c_no.isdigit():
+                            continue
+                        
                         raw_time = row[8] if row[8] else ""
                         
                         # 중복 여부 체크 (동일 학수번호)
@@ -782,19 +821,43 @@ async def upload_courses_pdf(file: UploadFile = File(...), db: Session = Depends
                         if existing_lecture:
                             continue
                         
+                        # 학년/구분 상태 유지 로직 추가 (빈칸이면 직전 값 유지)
+                        if row[0] and row[0].strip():
+                            current_grade = row[0].strip()
+                        if row[1] and row[1].strip():
+                            current_type = row[1].strip()
+                            
+                        # 구분 값 매핑 (models.py의 lecture_category enum은 한국어 값 사용)
+                        type_str = ""
+                        type_mapping = {
+                            '전필': '전공필수', '전선': '전공선택',
+                            '교필': '교양필수', '교선': '교양선택',
+                            '교직': '교직', '공통': '공통',
+                            '일선': '전공선택', '기필': '교양필수',
+                            '기선': '교양선택', '기초': '교양필수'
+                        }
+                        if current_type:
+                            key = current_type[:2] if len(current_type) >= 2 else current_type
+                            type_str = type_mapping.get(key, '전공선택')
+                        else:
+                            type_str = '전공선택'
+                            
+                        c_dept = row[2].replace('\n', '') if row[2] else ""
+                        c_prof = row[7].replace('\n', '') if row[7] else "미지정"
+                        c_room = row[9].replace('\n', '') if row[9] else "미지정"
+                        
                         # lecture_tb 데이터 생성
-                        dept_name = row[2].replace('\n', '')
-                        matched_dept = db.query(models.Depart).filter(models.Depart.depart == dept_name).first()
+                        matched_dept = db.query(models.Depart).filter(models.Depart.depart == c_dept).first()
                         lecture = models.Lecture(
                             course_no=c_no,
-                            subject=row[4].replace('\n', ''),
-                            department=dept_name,
+                            subject=row[4].replace('\n', '') if row[4] else "",
+                            department=c_dept,
                             dept_no=matched_dept.dept_no if matched_dept else None,
-                            lec_grade=row[1],
-                            credit=int(row[5]) if row[5].isdigit() else 3,
-                            professor=row[7].replace('\n', '') if row[7] else "미지정",
-                            classroom=row[9].replace('\n', '') if row[9] else "미지정",
-                            type=row[0].strip(),
+                            lec_grade=current_grade,
+                            credit=int(row[5]) if row[5] and str(row[5]).isdigit() else 3,
+                            professor=c_prof,
+                            classroom=c_room,
+                            type=type_str,
                             capacity=40,
                             version=0
                         )
@@ -810,10 +873,18 @@ async def upload_courses_pdf(file: UploadFile = File(...), db: Session = Depends
                                 start_min=to_mins(start),
                                 end_min=to_mins(end),
                                 start_time=start + ":00",
-                                end_time=end + ":00"
+                                end_time=end + ":00",
+                                classroom=c_room
                             )
                             db.add(schedule)
-                    except Exception:
+                        
+                        # 스케줄 정보가 없어도 강의실 자체는 강의 정보에 들어갔으므로 통과
+                        db.flush() # schedule도 flush를 바로 날려서 확인
+                    except Exception as loop_e:
+                        import traceback
+                        print(f"[{c_no}] Row processing failed:", row)
+                        traceback.print_exc()
+                        db.rollback()
                         continue
         db.commit()
     except Exception as e:

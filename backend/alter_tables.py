@@ -11,6 +11,7 @@ def add_columns():
             
             conn.execute(text("ALTER TABLE lecture_tb ADD COLUMN IF NOT EXISTS waitlist_capacity INTEGER DEFAULT 10;"))
             conn.execute(text("ALTER TABLE lecture_tb ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;"))
+            conn.execute(text("ALTER TABLE lecture_tb ADD COLUMN IF NOT EXISTS classroom VARCHAR(100);"))
             
             conn.commit()
             print("Successfully added all required columns to PostgreSQL.")
