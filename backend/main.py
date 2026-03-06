@@ -1,5 +1,7 @@
 import logging
 import os
+import time
+import json
 from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -10,8 +12,8 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from jose import jwt
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, BigInteger
-from sqlalchemy.orm import sessionmaker, declarative_base, relationship, joinedload, selectinload
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, func, text
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship, joinedload, selectinload, Session
 from sqlalchemy.types import Enum as SAEnum
 from sqlalchemy.pool import StaticPool
 import uuid
@@ -1317,84 +1319,101 @@ def set_server_time_offset(req: ServerTimeOffsetRequest, db: Session = Depends(g
     return {"message": "서버 시간 오프셋이 설정되었습니다.", "offset_ms": req.offset_ms}
 
 
+# --- 시스템 상태 캐시 변수 (메모리 상주) ---
+_cached_system_status = None
+_last_status_update = 0
+
 @app.get("/api/v1/admin/system-status")
 def get_system_status(db: Session = Depends(get_db)):
-    """관리자용: 시스템 모니터링 데이터 - DB 상태, 수강신청 현황, 대기열 현황"""
-    import time
-    from sqlalchemy import text as sa_text
+    """관리자용: 시스템 모니터링 데이터 (초극한 최적화: 1 RTT + 캐시)"""
+    global _cached_system_status, _last_status_update
+    
+    now_ts = time.time()
+    # 3초 캐시: 초고속 응답
+    if _cached_system_status and (now_ts - _last_status_update < 3):
+        return _cached_system_status
+
     t0 = time.time()
     try:
-        db.execute(sa_text("SELECT 1"))
-        db_ok = True
-    except Exception:
-        db_ok = False
+        # PostgreSQL의 JSON 기능을 활용해 메트릭, 최근 내역, 일정을 한 번의 DB 왕복으로 모두 가져옴
+        super_query = text("""
+            WITH stats AS (
+                SELECT 
+                    (SELECT count(*) FROM enroll_tb WHERE enroll_status = 'COMPLETED') as completed,
+                    (SELECT count(*) FROM enroll_tb WHERE enroll_status = 'BASKET') as basket,
+                    (SELECT count(*) FROM enroll_tb WHERE enroll_status = 'CANCELED') as canceled,
+                    (SELECT count(*) FROM waitlist_tb WHERE status = 'WAITING') as waiting,
+                    (SELECT count(*) FROM waitlist_tb WHERE status = 'PROMOTED') as promoted,
+                    (SELECT count(*) FROM user_tb WHERE role = 'STUDENT') as students,
+                    (SELECT count(*) FROM lecture_tb) as lectures,
+                    (SELECT value FROM system_config_tb WHERE key = 'server_time_offset_ms' LIMIT 1) as offset_ms
+            ),
+            recent AS (
+                SELECT array_to_json(array_agg(t)) as list
+                FROM (
+                    SELECT enroll_no, loginid as user_id, lecture_id, enroll_status as status, 
+                           to_char(createdat, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at
+                    FROM enroll_tb
+                    ORDER BY createdat DESC
+                    LIMIT 5
+                ) t
+            ),
+            active AS (
+                SELECT row_to_json(s) as info
+                FROM (
+                    SELECT day_number, restriction_type, 
+                           to_char(close_datetime, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as close_datetime
+                    FROM enroll_schedule_tb
+                    WHERE is_active = true 
+                      AND open_datetime <= (now() AT TIME ZONE 'UTC')
+                      AND close_datetime >= (now() AT TIME ZONE 'UTC')
+                    ORDER BY day_number ASC
+                    LIMIT 1
+                ) s
+            )
+            SELECT stats.*, recent.list as recent_list, active.info as active_info
+            FROM stats, recent, active;
+        """)
+        
+        row = db.execute(super_query).fetchone()
+        db_latency_ms = round((time.time() - t0) * 1000, 1)
 
-    # DB 응답시간
-    db_latency_ms = round((time.time() - t0) * 1000, 1)
+        # JSON 파싱 및 결과 구성
+        recent_enrollments = row.recent_list if row.recent_list else []
+        active_day = row.active_info # 이미 dict 형태
+        offset_ms = int(row.offset_ms) if row.offset_ms else 0
+        server_time_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
-    # 수강신청 현황
-    total_completed = db.query(models.Enrollment).filter(models.Enrollment.enroll_status == "COMPLETED").count()
-    total_basket = db.query(models.Enrollment).filter(models.Enrollment.enroll_status == "BASKET").count()
-    total_canceled = db.query(models.Enrollment).filter(models.Enrollment.enroll_status == "CANCELED").count()
-
-    # 대기열 현황
-    waitlist_waiting = db.query(models.Waitlist).filter(models.Waitlist.status == "WAITING").count()
-    waitlist_promoted = db.query(models.Waitlist).filter(models.Waitlist.status == "PROMOTED").count()
-
-    # 현재 수강신청 활성 스케줄
-    active_schedule = _get_active_schedule(db)
-    enrollment_active = active_schedule is not None
-    active_day_info = None
-    if active_schedule:
-        active_day_info = {
-            "day_number": active_schedule.day_number,
-            "restriction_type": active_schedule.restriction_type,
-            "close_datetime": active_schedule.close_datetime.isoformat() + "Z"
+        result = {
+            "db_status": "정상",
+            "db_latency_ms": db_latency_ms,
+            "server_time_ms": server_time_ms + offset_ms,
+            "offset_ms": offset_ms,
+            "enrollment_active": active_day is not None,
+            "active_day": active_day,
+            "enrollments": {
+                "completed": row.completed,
+                "basket": row.basket,
+                "canceled": row.canceled
+            },
+            "waitlist": {
+                "waiting": row.waiting,
+                "promoted": row.promoted
+            },
+            "total_students": row.students,
+            "total_lectures": row.lectures,
+            "recent_enrollments": recent_enrollments
         }
+        
+        _cached_system_status = result
+        _last_status_update = now_ts
+        return result
 
-    # 가장 최근 수강신청 5건
-    recent_enrollments = db.query(models.Enrollment).order_by(
-        models.Enrollment.created_at.desc()
-    ).limit(5).all()
-    recent_list = [
-        {
-            "enroll_no": e.id,
-            "user_id": e.user_id,
-            "lecture_id": e.lecture_id,
-            "status": e.enroll_status,
-            "created_at": e.created_at.isoformat() + "Z" if e.created_at else None
-        }
-        for e in recent_enrollments
-    ]
+    except Exception as e:
+        logger.error(f"Super status error: {e}")
+        db.rollback()
+        return {"db_status": "오류", "db_latency_ms": -1}
 
-    # 전체 학생/강좌 수
-    total_students = db.query(models.User).filter(models.User.role == "STUDENT").count()
-    total_lectures = db.query(models.Lecture).count()
-
-    server_time_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    offset_cfg = db.query(models.SystemConfig).filter(models.SystemConfig.key == "server_time_offset_ms").first()
-    offset_ms = int(offset_cfg.value) if offset_cfg else 0
-
-    return {
-        "db_status": "정상" if db_ok else "오류",
-        "db_latency_ms": db_latency_ms,
-        "server_time_ms": server_time_ms + offset_ms,
-        "offset_ms": offset_ms,
-        "enrollment_active": enrollment_active,
-        "active_day": active_day_info,
-        "enrollments": {
-            "completed": total_completed,
-            "basket": total_basket,
-            "canceled": total_canceled
-        },
-        "waitlist": {
-            "waiting": waitlist_waiting,
-            "promoted": waitlist_promoted
-        },
-        "total_students": total_students,
-        "total_lectures": total_lectures,
-        "recent_enrollments": recent_list
-    }
 
 
 # --- 프론트엔드 정적 파일 서빙 ---
