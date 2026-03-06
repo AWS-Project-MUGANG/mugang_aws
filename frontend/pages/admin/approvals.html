@@ -54,11 +54,23 @@
     <div class="app-container">
         <!-- 사이드바 -->
         <aside class="sidebar">
-            <div class="sidebar-header" style="background-color: #37474f;">
-                <div class="student-info"><span class="name">김무강 교수</span></div>
+            <div class="sidebar-header">
+                <div class="student-info">
+                    <span class="name"></span>
+                    <span class="id"></span>
+                </div>
+                <div class="department-info">
+                    <p></p>
+                    <p class="sub-dept"></p>
+                </div>
             </div>
             <nav class="sidebar-nav">
-                <button class="nav-item" onclick="location.href='dashboard.html'">뒤로 가기 (대시보드)</button>
+                <button class="nav-item" onclick="location.href='dashboard.html'">대시보드 홈</button>
+                <button class="nav-item" onclick="location.href='dashboard.html'">수업 개설 관리</button>
+                <button class="nav-item" onclick="location.href='enrollment_schedule.html'">수강신청 기간 설정</button>
+                <button class="nav-item active">결재 / 서류 반려함</button>
+                <button class="nav-item" onclick="location.href='rag_update.html'">학사 규정 AI 업데이트</button>
+                <button class="nav-item logout-btn" onclick="logout()">로그아웃</button>
             </nav>
         </aside>
 
@@ -141,6 +153,11 @@
             } catch (err) {
                 console.error(err);
             }
+        }
+
+        function logout() {
+            localStorage.clear();
+            location.href = '../auth/login.html';
         }
     </script>
 </body>

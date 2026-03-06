@@ -62,7 +62,7 @@
                 <button class="nav-item" onclick="location.href='enrollment_schedule.html'">수강신청 기간 설정</button>
                 <button class="nav-item" onclick="location.href='approvals.html'">결재 / 서류 반려함</button>
                 <button class="nav-item" onclick="location.href='rag_update.html'">학사 규정 AI 업데이트</button>
-                <button class="nav-item logout-btn" onclick="location.href='../auth/login.html'">로그아웃</button>
+                <button class="nav-item logout-btn" onclick="logout()">로그아웃</button>
             </nav>
         </aside>
 
@@ -697,6 +697,11 @@
 
         // 초기 로드 시 실행
         loadEnrollmentPeriod();
+
+        function logout() {
+            localStorage.clear();
+            location.href = '../auth/login.html';
+        }
     </script>
 </body>
 
