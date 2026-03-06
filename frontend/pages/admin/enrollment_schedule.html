@@ -15,6 +15,7 @@
             border: 1px solid #e0e0e0;
             box-shadow: 0 1px 4px rgba(0,0,0,0.08);
         }
+        .day-card.basket { border-left: 5px solid #ef5350; }
         .day-card.day-1 { border-left: 5px solid #1976d2; }
         .day-card.day-2 { border-left: 5px solid #388e3c; }
         .day-card.day-3 { border-left: 5px solid #f57c00; }
@@ -152,6 +153,35 @@
             <div id="status-banner" class="status-banner status-inactive">
                 <span id="status-icon">⏳</span>
                 <span id="status-text">수강신청 일정을 불러오는 중...</span>
+            </div>
+
+             <!-- 예비 수강신청 -->
+            <div class="day-card basket">
+                <div class="day-header">
+                    <h3>📅 예비 수강신청</h3>
+                    <span class="restriction-badge badge-blue">대학 전체</span>
+                    <div class="toggle-row">
+                        <span>활성화</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="day1-active" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="datetime-grid">
+                    <div>
+                        <label>🔓 오픈 날짜 / 시간</label>
+                        <input type="datetime-local" id="day1-open">
+                    </div>
+                    <div>
+                        <label>🔒 마감 날짜 / 시간</label>
+                        <input type="datetime-local" id="day1-close">
+                    </div>
+                </div>
+                <div class="info-box">
+                    ℹ️ <strong>제한 없음:</strong>
+                    단과대학·학과에 관계없이 <strong>학교 전체 강의</strong>를 수강신청할 수 있습니다.
+                </div>
             </div>
 
             <!-- 1일차 -->

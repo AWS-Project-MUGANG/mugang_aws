@@ -14,7 +14,13 @@ let cartData = [];
 const userId = localStorage.getItem('user_no');
 
 // 수강신청 가능 여부 상태
-let isEnrollmentActive = false; // Changed from true to false
+let isEnrollmentActive = false;
+
+// 현재 진행 중인 수강신청 스케줄 (null이면 기간 아님)
+let currentSchedule = null;
+
+// 로그인한 학생 프로필 (일차별 제한 필터에 사용)
+let userProfile = null;
 
 // 모달 디자인이 있을 경우 기본 alert()를 가로채어 예쁜 모달로 띄웁니다.
 const originalAlert = window.alert;
