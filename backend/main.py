@@ -701,37 +701,51 @@ def get_admin_enrollments(
     db: Session = Depends(get_db)
 ):
     """관리자용: 개설 과목별 수강생 전체 현황 (필터링 추가)"""
-    dept_college_map = {d.depart: d.college for d in db.query(models.Depart).all()}
-
+    # DB 레벨에서 필터링 + 한 번의 쿼리로 enrollment/lecture/depart/user 전부 로드
     query = db.query(models.Enrollment).options(
-        joinedload(models.Enrollment.lecture).joinedload(models.Lecture.depart)
-    )
+        joinedload(models.Enrollment.lecture).joinedload(models.Lecture.depart),
+        joinedload(models.Enrollment.user)
+    ).join(models.Lecture, models.Enrollment.lecture_id == models.Lecture.lecture_id)
+
+    # CANCELED·BASKET 제외 — 불필요한 행 로드 차단
+    query = query.filter(models.Enrollment.enroll_status == "COMPLETED")
+
     if lecture_id:
         query = query.filter(models.Enrollment.lecture_id == lecture_id)
+    if grade:
+        query = query.filter(models.Lecture.lec_grade == grade)
+    if college:
+        query = query.join(models.Depart, models.Lecture.dept_no == models.Depart.dept_no)\
+                     .filter(models.Depart.college == college)
 
     enrollments = query.all()
+
+    # 레거시 데이터(dept_no 없는 강의) 대비 fallback map - 필요할 때만 생성
+    dept_college_map = None
+
     summary = {}
     for en in enrollments:
         lec = en.lecture
         if not lec:
             continue
 
-        lec_college = lec.depart.college if lec.depart else dept_college_map.get(lec.department)
-        if college and lec_college != college:
-            continue
-        if grade and str(lec.lec_grade) != str(grade):
-            continue
-            
-        subject_key = lec.subject if lec else "Unknown"
+        # college 필터가 없거나 이미 DB에서 걸렸으므로, 레거시 fallback만 처리
+        if college and not lec.dept_no:
+            if dept_college_map is None:
+                dept_college_map = {d.depart: d.college for d in db.query(models.Depart).all()}
+            if dept_college_map.get(lec.department) != college:
+                continue
+
+        subject_key = lec.subject
         if subject_key not in summary:
             summary[subject_key] = {
                 "lecture_id": en.lecture_id,
                 "subject": subject_key,
-                "capacity": lec.capacity if lec else 0,
-                "count": lec.count if lec else 0,
+                "capacity": lec.capacity or 0,
+                "count": lec.count or 0,
                 "students": []
             }
-        user = db.query(models.User).filter(models.User.user_no == en.user_id).first()
+        user = en.user  # joinedload로 이미 로드됨 — 추가 쿼리 없음
         summary[subject_key]["students"].append({
             "enrollment_id": en.id,
             "user_id": en.user_id,
@@ -804,31 +818,38 @@ async def upload_courses_pdf(file: UploadFile = File(...), db: Session = Depends
     time_re = re.compile(r'([월화수목금토])\((\d{2}:\d{2})-(\d{2}:\d{2})\)')
     
     try:
+        # 루프 진입 전 사전 로드 — 행마다 쿼리 대신 dict 조회 (O(n) → O(1))
+        existing_course_nos = {
+            r[0] for r in db.query(models.Lecture.course_no).all()
+        }
+        dept_map = {
+            d.depart: d.dept_no for d in db.query(models.Depart).all()
+        }
+
         # PDF 파싱 (changepdftocsv.py 원본 로직 이식)
         with pdfplumber.open(tmp_path) as pdf:
             for page in pdf.pages:
                 table = page.extract_table()
                 if not table: continue
-                
+
                 for row in table[1:]:
                     try:
                         c_no = row[3].strip()
                         raw_time = row[8] if row[8] else ""
-                        
-                        # 중복 여부 체크 (동일 학수번호)
-                        existing_lecture = db.query(models.Lecture).filter(models.Lecture.course_no == c_no).first()
-                        if existing_lecture:
+
+                        # 중복 여부 체크 — dict 조회 (쿼리 없음)
+                        if c_no in existing_course_nos:
                             continue
-                        
+                        existing_course_nos.add(c_no)  # 같은 PDF 내 중복도 방지
+
                         # lecture_tb 데이터 생성
                         dept_name = row[2].replace('\n', '')
-                        matched_dept = db.query(models.Depart).filter(models.Depart.depart == dept_name).first()
                         pdf_classroom = row[9].replace('\n', '') if row[9] else "미지정"
                         lecture = models.Lecture(
                             course_no=c_no,
                             subject=row[4].replace('\n', ''),
                             department=dept_name,
-                            dept_no=matched_dept.dept_no if matched_dept else None,
+                            dept_no=dept_map.get(dept_name),  # dict 조회 (쿼리 없음)
                             lec_grade=row[1],
                             credit=int(row[5]) if row[5].isdigit() else 3,
                             professor=row[7].replace('\n', '') if row[7] else "미지정",
@@ -968,9 +989,17 @@ def generate_form(req: FormRequest):
 def get_all_forms(db: Session = Depends(get_db)):
     """관리자용: 신청된 모든 폼 내역 조회"""
     forms = db.query(models.Form).order_by(models.Form.created_at.desc()).all()
+
+    # 관련 user_id만 모아 한 번에 조회 — 루프 내 N+1 제거
+    user_ids = list({f.user_id for f in forms if f.user_id})
+    user_map = {}
+    if user_ids:
+        users = db.query(models.User).filter(models.User.user_no.in_(user_ids)).all()
+        user_map = {u.user_no: u for u in users}
+
     result = []
     for f in forms:
-        user = db.query(models.User).filter(models.User.user_no == f.user_id).first()
+        user = user_map.get(f.user_id)
         result.append({
             "id": f.id,
             "form_type": f.form_type,
