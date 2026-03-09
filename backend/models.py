@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, BigInteger, DateTime, ForeignKey, JSON, Time, Enum as SAEnum, Boolean
+from sqlalchemy import Column, String, Integer, BigInteger, DateTime, Date, ForeignKey, JSON, Time, Enum as SAEnum, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -22,10 +22,11 @@ class User(Base):
     loginid = Column(String(50), unique=True, nullable=False)
     password = Column(String(255), nullable=False)
     role = Column(SAEnum('STUDENT', 'STAFF', name='role_enum'), nullable=False)
-    user_name = Column(String(50), nullable=False)
+    user_name = Column(String(50), nullable=False, index=True)
     grade = Column(Integer, nullable=True)
     dept_no = Column(BigInteger, ForeignKey("depart_tb.dept_no", ondelete="SET NULL"), nullable=True)
     user_status = Column(SAEnum('재학', '휴학', '재직', '퇴직', name='status_enum'), nullable=False)
+    birth_date = Column(Date, nullable=True)
     email = Column(String(150), unique=True, nullable=True)
     phone = Column(String(20), nullable=True)
     is_first_login = Column(Boolean, default=True)
@@ -34,26 +35,23 @@ class User(Base):
     depart = relationship("Depart")
 
 
-
-
-
 class Lecture(Base):
     __tablename__ = "lecture_tb"
 
     lecture_id = Column(Integer, primary_key=True, autoincrement=True)
     course_no = Column(String(20), unique=True)
     subject = Column(String(200), nullable=False)
-    department = Column(String(100))
+    department = Column(String(100), index=True)
     dept_no = Column(BigInteger, ForeignKey("depart_tb.dept_no"), nullable=True)
-    lec_grade = Column(String(10))
+    lec_grade = Column(String(10), index=True)
     credit = Column(Integer)
     professor = Column(String(50))
-    classroom = Column(String(100))
-    type = Column(SAEnum('전공필수', '전공선택', '교양필수', '교양선택', '교직', '공통', name='lecture_category'))
+    type = Column(SAEnum('전공필수', '전공선택', '교양필수', '교양선택', '교직', '공통', name='lecture_category'), index=True)
     capacity = Column(Integer, default=0)
     count = Column(Integer, default=0)
     waitlist_capacity = Column(Integer, default=10) # 큐 정원
     version = Column(Integer, default=0)
+    classroom = Column(String(100)) # 강의실
 
     depart = relationship("Depart")
     schedules = relationship("ScheduleTb", back_populates="lecture", cascade="all, delete-orphan")
@@ -70,12 +68,9 @@ class ScheduleTb(Base):
     end_min = Column(Integer)
     start_time = Column(Time)
     end_time = Column(Time)
-    classroom = Column(String(100))
+    classroom = Column(String(50))
 
     lecture = relationship("Lecture", back_populates="schedules")
-
-
-
 
 
 class Enrollment(Base):
@@ -83,13 +78,29 @@ class Enrollment(Base):
 
     id = Column("enroll_no", BigInteger, primary_key=True, autoincrement=True)
     user_id = Column("loginid", BigInteger, ForeignKey("user_tb.user_no"))
-    lecture_id = Column(Integer, ForeignKey("lecture_tb.lecture_id"))
+    lecture_id = Column(BigInteger, ForeignKey("lecture_tb.lecture_id"))
     sche_no = Column(BigInteger, nullable=True)
-    enroll_status = Column(String(9), nullable=True)
+    enroll_status = Column(SAEnum('COMPLETED', 'CANCELED', 'BASKET', name='enroll_status_enum'), nullable=True)
     status = Column(String(20), default="cart")
     created_at = Column("createdat", DateTime, default=datetime.utcnow)
 
     lecture = relationship("Lecture", back_populates="enrollments")
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class Grade(Base):
+    """학생용 성적/이수 정보 테이블"""
+    __tablename__ = "grade_tb"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("user_tb.user_no", ondelete="CASCADE"), index=True)
+    enrollment_id = Column(BigInteger, ForeignKey("enroll_tb.enroll_no", ondelete="CASCADE"), index=True)
+    grade_letter = Column(String(5))  # A+, A0, ...
+    semester = Column(String(20))    # 2024-1, ...
+    is_retake = Column(Boolean, default=False)
+
+    user = relationship("User")
+    enrollment = relationship("Enrollment")
 
 
 class Notice(Base):
@@ -139,9 +150,8 @@ class EnrollmentSchedule(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     day_number = Column(Integer, nullable=False)          # 1, 2, 3
-    open_datetime = Column(DateTime, nullable=False)      # 오픈 일시 (UTC)
-    close_datetime = Column(DateTime, nullable=False)     # 마감 일시 (UTC)
+    open_datetime = Column(DateTime, nullable=True)      # 오픈 일시 (UTC)
+    close_datetime = Column(DateTime, nullable=True)     # 마감 일시 (UTC)
     restriction_type = Column(String(30), nullable=False) # 'own_grade_dept' | 'own_college' | 'all'
     is_active = Column(Boolean, default=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-

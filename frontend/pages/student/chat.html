@@ -135,7 +135,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        user_id: localStorage.getItem('user_id') || 'test_student',
+                        user_id: localStorage.getItem('user_no') || 'test_student',
                         session_id: currentSessionId,
                         message: message
                     })

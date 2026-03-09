@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "C:\Users\junse\Desktop\vscode\team-project\mugang_aws\backend\main.py", line 628, in <module>
-    async def upload_courses_batch(file: UploadFile = File(...), db: Session = Depends(get_db)):
-                                                      ^^^^
-NameError: name 'File' is not defined. Did you mean: 'False'?

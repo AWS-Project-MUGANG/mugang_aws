@@ -227,11 +227,11 @@
                             document.getElementById('firstSetupModal').style.display = 'flex';
                         } else {
                             // Normal Login Flow
-                            localStorage.setItem('user_id', data.user_id);
+                            localStorage.setItem('user_no', data.user_no);
                             localStorage.setItem('access_token', data.access_token);
                             localStorage.setItem('role', data.role);
 
-                            window.location.href = data.role === 'STAFF' ? '../admin/dashboard.html' : '../student/dashboard.html';
+                            window.location.href = data.role === 'STAFF' ? '../admin/server_management.html' : '../student/dashboard.html';
                         }
                     } else {
                         alert(`로그인 실패: ${data.detail}`);

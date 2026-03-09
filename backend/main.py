@@ -1,5 +1,7 @@
 import logging
 import os
+import time
+import json
 from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -12,6 +14,8 @@ from jose import jwt
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, text
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, func, text
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship, joinedload, selectinload, Session
 from sqlalchemy.types import Enum as SAEnum
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
@@ -86,8 +90,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 프론트엔드 정적 파일 연결 (도커 환경 대응)
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
-app.mount("/static", StaticFiles(directory=frontend_path), name="static")
+if os.path.exists(frontend_path):
+    app.mount("/static", StaticFiles(directory=frontend_path), name="static")
+    logger.info(f"정적 파일 경로 연결됨: {frontend_path}")
+else:
+    logger.warning(f"정적 파일 경로를 찾을 수 없습니다 (도커 환경 혹은 경로 오류): {frontend_path}")
 
 # ---- API 요청/응답 데이터 모델 (Pydantic) ----
 class FirstSetupRequest(BaseModel):
@@ -110,7 +119,7 @@ class LoginRequest(BaseModel):
     password: str
 
 class ChatRequest(BaseModel):
-    user_id: str
+    user_id: int
     session_id: str
     message: str
 
@@ -130,8 +139,8 @@ class NoticeRequest(BaseModel):
     content: str
 
 class GradeRequest(BaseModel):
-    enrollment_id: str
-    user_id: str
+    enrollment_id: int
+    user_id: int
     score: int
     grade_letter: str
 
@@ -145,7 +154,7 @@ class EnrollmentPeriodRequest(BaseModel):
     end_time: str    # ISO Format
 
 class EnrollmentRequest(BaseModel):
-    user_id: str
+    user_id: int
     lecture_id: int  # lecture_tb.lecture_id 참조
 
 class EnrollmentScheduleDayRequest(BaseModel):
@@ -270,7 +279,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         "require_setup": False,
         "access_token": access_token,
         "token_type": "bearer",
-        "user_id": user.user_no,
+        "user_no": user.user_no,
         "name": user.user_name,
         "role": user.role
     }
@@ -362,13 +371,60 @@ def get_departments(db: Session = Depends(get_db)):
     return {"colleges": colleges}
 
 
+# --- 필터 옵션 (단과대 + 학년) ---
+@app.get("/api/v1/admin/filter-options")
+def get_filter_options(db: Session = Depends(get_db)):
+    """관리자 필터바용: DB에서 단과대 목록 및 강의 학년 목록 반환"""
+    departs = db.query(models.Depart.college).distinct().order_by(models.Depart.college).all()
+    colleges = [row.college for row in departs if row.college]
+
+    grades = (
+        db.query(models.Lecture.lec_grade)
+        .filter(models.Lecture.lec_grade.isnot(None))
+        .distinct()
+        .order_by(models.Lecture.lec_grade)
+        .all()
+    )
+    grade_list = [str(row.lec_grade) for row in grades if row.lec_grade]
+
+    return {"colleges": colleges, "grades": grade_list}
+
+
 # --- 강의 (lecture_tb) ---
 @app.get("/api/v1/lectures")
-def get_lectures(db: Session = Depends(get_db)):
-    """강의 목록 전체 조회 (수강신청 화면용) - schedule_tb 조인"""
-    lectures = db.query(models.Lecture).all()
-    # department 이름 → college 역조회 맵 (dept_no 미설정 강의 fallback용)
-    dept_college_map = {d.depart: d.college for d in db.query(models.Depart).all()}
+def get_lectures(
+    page: int = 1,
+    size: int = 50,
+    college: Optional[str] = None,
+    lec_grade: Optional[str] = None,
+    lecture_type: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """강의 목록 조회 (수강신청 화면용) - 페이지네이션 + 필터 + selectinload 최적화"""
+    query = db.query(models.Lecture).options(
+        selectinload(models.Lecture.schedules),  # OneToMany: selectinload로 Cartesian product 방지
+        joinedload(models.Lecture.depart)        # ManyToOne: joinedload 유지
+    )
+
+    # 필터 적용
+    if college:
+        query = query.join(models.Depart, models.Lecture.dept_no == models.Depart.dept_no).filter(
+            models.Depart.college == college
+        )
+    if lec_grade:
+        query = query.filter(models.Lecture.lec_grade == lec_grade)
+    if lecture_type:
+        query = query.filter(models.Lecture.type == lecture_type)
+    if search:
+        query = query.filter(models.Lecture.subject.ilike(f"%{search}%"))
+
+    total = query.count()
+    lectures = query.offset((page - 1) * size).limit(size).all()
+
+    # FK가 없는 레거시 데이터 처리를 위한 맵 (필요할 때만 생성)
+    dept_college_map = None
+
     result = []
     for lec in lectures:
         schedules = [
@@ -376,38 +432,92 @@ def get_lectures(db: Session = Depends(get_db)):
                 "day_of_week": s.day_of_week,
                 "start_time": str(s.start_time) if s.start_time else None,
                 "end_time": str(s.end_time) if s.end_time else None,
+                "classroom": s.classroom,
             }
             for s in lec.schedules
         ]
-        college = lec.depart.college if lec.depart else dept_college_map.get(lec.department)
-        # dept_no FK 연결 시 depart_tb의 공식 학과명 사용 (필터 일치를 위해)
-        department = lec.depart.depart if lec.depart else lec.department
+
+        # 1. FK 관계(depart)가 있으면 우선 사용 (가장 빠름)
+        if lec.depart:
+            college_name = lec.depart.college
+            department = lec.depart.depart
+        else:
+            # 2. FK가 없으면 문자열 매칭 시도 (레거시 데이터 대응)
+            if dept_college_map is None:
+                dept_college_map = {d.depart: d.college for d in db.query(models.Depart).all()}
+            department = lec.department
+            college_name = dept_college_map.get(department)
+            college = dept_college_map.get(department)
+            
+            # PDF 약어 대응 하드코딩 (dept_college_map에 없을 때)
+            if not college and department:
+                fallback_mapping = {
+                    '특교유특초특': '사범대학', '수교화교': '사범대학', '물교지구': '사범대학', 
+                    '사범대': '사범대학', '영교': '사범대학', '역교': '사범대학', '일사': '사범대학',
+                    '국교': '사범대학', '지교': '사범대학', '유교': '사범대학',
+                    '자전융합': '자유전공학부', '자유전공': '자유전공학부', '공공': '공공인재대학', 
+                    '글경': '글로벌경영대학', '글로벌경영': '글로벌경영대학',
+                    '사과': '사회과학대학', '사회대': '사회과학대학', '보건': '보건바이오대학', 
+                    '디예': '디자인예술대학', '재활': '재활과학대학', '간호': '간호대학', 
+                    '체육': '체육레저학부', '문콘': '문화콘텐츠학부', '문화콘텐츠': '문화콘텐츠학부',
+                    'IT·공과': 'IT·공과대학', '글로컬': '글로컬라이프대학', '재과대': '재활과학대학',
+                    '대학전체': '교양대학'
+                }
+                college = fallback_mapping.get(department)
+                if not college:
+                    for k, v in fallback_mapping.items():
+                        if k in department:
+                            college = v
+                            break
+                            
+                # 그럼에도 불구하고 매핑이 없으면 '전공'/'학'/'디지털' 같은 형태이므로 '융합/연계전공' 처리
+                if not college:
+                    if '전공' in department or '창업학' in department or '인문' in department or '디지털미디어' in department or '관광' in department:
+                        college = '연계/융합대학'
+                    else:
+                        college = '기타대학'
+                            
+        # 강의실 '-' 처리
+        classroom = lec.classroom
+        if not classroom or classroom.strip() == '-' or classroom.strip() == '':
+            classroom = "미지정"
+
         result.append({
             "lecture_id": lec.lecture_id,
             "course_no": lec.course_no,
             "subject": lec.subject,
-            "college": college,
+            "college": college_name,
             "department": department,
             "lec_grade": lec.lec_grade,
             "credit": lec.credit,
             "professor": lec.professor,
-            "classroom": lec.classroom,
+            "classroom": schedules[0].classroom if lec.schedules else None,
             "type": lec.type,
             "capacity": lec.capacity,
             "count": lec.count,
             "schedules": schedules,
         })
-    return {"lectures": result}
+
+    return {
+        "lectures": result,
+        "total": total,
+        "page": page,
+        "size": size,
+        "total_pages": (total + size - 1) // size,
+    }
 
 
 
 # --- 수강신청 (enrollments) ---
 
 @app.get("/api/v1/enrollments/{user_id}")
-def get_user_enrollments(user_id: str, db: Session = Depends(get_db)):
+def get_user_enrollments(user_id: int, db: Session = Depends(get_db)):
     """사용자의 수강신청 내역 조회 (lecture_tb 조인) - CANCELED 제외"""
     dept_college_map = {d.depart: d.college for d in db.query(models.Depart).all()}
-    enrollments = db.query(models.Enrollment).filter(
+    enrollments = db.query(models.Enrollment).options(
+        joinedload(models.Enrollment.lecture).joinedload(models.Lecture.depart),
+        joinedload(models.Enrollment.lecture).selectinload(models.Lecture.schedules)
+    ).filter(
         models.Enrollment.user_id == user_id,
         models.Enrollment.enroll_status != "CANCELED"
     ).all()
@@ -415,13 +525,14 @@ def get_user_enrollments(user_id: str, db: Session = Depends(get_db)):
     for en in enrollments:
         lec = en.lecture
         college = (lec.depart.college if lec.depart else dept_college_map.get(lec.department)) if lec else None
+        classroom = (lec.schedules[0].classroom if lec.schedules else None) if lec else None
         result.append({
             "id": en.id,
             "lecture_id": en.lecture_id,
             "subject": lec.subject if lec else None,
             "college": college,
             "department": (lec.depart.depart if lec.depart else lec.department) if lec else None,
-            "classroom": lec.classroom if lec else None,
+            "classroom": classroom,
             "professor": lec.professor if lec else None,
             "type": lec.type if lec else None,
             "credits": lec.credit if lec else None,
@@ -434,7 +545,14 @@ def get_user_enrollments(user_id: str, db: Session = Depends(get_db)):
 @app.post("/api/v1/enrollments")
 def create_enrollment(req: EnrollmentRequest, db: Session = Depends(get_db)):
     """수강신청 1건 저장 (정원 체크 + 대기열 편입 + 낙관적 락)"""
-    if not is_enrollment_period_active(db):
+    # 새 스케줄 시스템이 설정된 경우 해당 시스템 우선 사용, 없으면 구 SystemConfig 방식
+    schedule_exists = db.query(models.EnrollmentSchedule).filter(
+        models.EnrollmentSchedule.is_active == True
+    ).first()
+    if schedule_exists:
+        if not _get_active_schedule(db):
+            raise HTTPException(status_code=403, detail="현재는 수강신청 기간이 아닙니다.")
+    elif not is_enrollment_period_active(db):
         raise HTTPException(status_code=403, detail="현재는 수강신청 기간이 아닙니다.")
 
     user = db.query(models.User).filter(models.User.user_no == req.user_id).first()
@@ -542,9 +660,15 @@ def create_enrollment(req: EnrollmentRequest, db: Session = Depends(get_db)):
 
 
 @app.put("/api/v1/enrollments/{enrollment_id}/confirm")
-def confirm_enrollment(enrollment_id: str, db: Session = Depends(get_db)):
+def confirm_enrollment(enrollment_id: int, db: Session = Depends(get_db)):
     """수강 장바구니 → 최종 신청 확정"""
-    if not is_enrollment_period_active(db):
+    schedule_exists = db.query(models.EnrollmentSchedule).filter(
+        models.EnrollmentSchedule.is_active == True
+    ).first()
+    if schedule_exists:
+        if not _get_active_schedule(db):
+            raise HTTPException(status_code=403, detail="현재는 수강신청 기간이 아닙니다.")
+    elif not is_enrollment_period_active(db):
         raise HTTPException(status_code=403, detail="현재는 수강신청 기간이 아닙니다.")
 
     en = db.query(models.Enrollment).filter(models.Enrollment.id == enrollment_id).first()
@@ -556,7 +680,7 @@ def confirm_enrollment(enrollment_id: str, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/v1/enrollments/{enrollment_id}")
-def drop_enrollment(enrollment_id: str, db: Session = Depends(get_db)):
+def drop_enrollment(enrollment_id: int, db: Session = Depends(get_db)):
     """수강 철회 및 대기열 승급(Promotion) 로직 (트랜잭션 롤백 포함)"""
     en = db.query(models.Enrollment).filter(models.Enrollment.id == enrollment_id).first()
     if not en:
@@ -609,9 +733,11 @@ def drop_enrollment(enrollment_id: str, db: Session = Depends(get_db)):
 
 # --- 학생 통계 ---
 @app.get("/api/v1/student/{user_id}/stats")
-def get_student_stats(user_id: str, db: Session = Depends(get_db)):
+def get_student_stats(user_id: int, db: Session = Depends(get_db)):
     """학생용: 이수 학점 및 성적 조회"""
-    enrollments = db.query(models.Enrollment).filter(
+    enrollments = db.query(models.Enrollment).options(
+        joinedload(models.Enrollment.lecture)
+    ).filter(
         models.Enrollment.user_id == user_id,
         models.Enrollment.status == "enrolled"
     ).all()
@@ -620,12 +746,21 @@ def get_student_stats(user_id: str, db: Session = Depends(get_db)):
 
     grades = db.query(models.Grade).filter(models.Grade.user_id == user_id).all()
 
+    # enrollment를 한 번에 map으로 로드 (루프 내 개별 쿼리 제거)
+    enrollment_ids = [g.enrollment_id for g in grades]
+    enrollment_map = {}
+    if enrollment_ids:
+        loaded = db.query(models.Enrollment).options(
+            joinedload(models.Enrollment.lecture)
+        ).filter(models.Enrollment.id.in_(enrollment_ids)).all()
+        enrollment_map = {en.id: en for en in loaded}
+
     grade_points = {"A+": 4.5, "A0": 4.0, "B+": 3.5, "B0": 3.0, "C+": 2.5, "C0": 2.0, "D+": 1.5, "D0": 1.0, "F": 0.0}
 
     total_point_sum = 0
     total_credit_sum = 0
     for g in grades:
-        en = db.query(models.Enrollment).filter(models.Enrollment.id == g.enrollment_id).first()
+        en = enrollment_map.get(g.enrollment_id)
         if en and en.lecture and g.grade_letter in grade_points:
             total_point_sum += grade_points[g.grade_letter] * en.lecture.credit
             total_credit_sum += en.lecture.credit
@@ -643,43 +778,78 @@ def get_student_stats(user_id: str, db: Session = Depends(get_db)):
 # --- 관리자: 수강 현황 및 대시보드 ---
 @app.get("/api/v1/admin/enrollments")
 def get_admin_enrollments(
+    page: int = 1,
+    size: int = 10,
     college: Optional[str] = None,
     grade: Optional[str] = None,
     lecture_id: Optional[int] = None,
     db: Session = Depends(get_db)
 ):
-    """관리자용: 개설 과목별 수강생 전체 현황 (필터링 추가)"""
-    query = db.query(models.Enrollment)
-    
-    # 조인을 활용한 동적 필터링 처리 (예시 수준)
+    """관리자용: 개설 과목별 수강생 현황 (페이지네이션 적용)"""
+    # 1. 강의(Lecture)를 기준으로 먼저 페이징
+    query = db.query(models.Lecture).options(
+        joinedload(models.Lecture.depart)
+    )
+
+    # 필터 적용
     if lecture_id:
-        query = query.filter(models.Enrollment.lecture_id == lecture_id)
-        
-    enrollments = query.all()
-    summary = {}
-    for en in enrollments:
-        lec = en.lecture
-        # 필터링 적용 여부 체크 로직 등 보완 가능
-        if college and lec and lec.department != college:
-            continue
-            
-        subject_key = lec.subject if lec else "Unknown"
-        if subject_key not in summary:
-            summary[subject_key] = {
-                "lecture_id": en.lecture_id,
-                "subject": subject_key,
-                "capacity": lec.capacity if lec else 0,
-                "count": lec.count if lec else 0,
-                "students": []
-            }
-        user = db.query(models.User).filter(models.User.user_no == en.user_id).first()
-        summary[subject_key]["students"].append({
-            "enrollment_id": en.id,
-            "user_id": en.user_id,
-            "student_id": user.loginid if user else "Unknown",
-            "name": user.user_name if user else "Unknown"
+        query = query.filter(models.Lecture.lecture_id == lecture_id)
+    if grade:
+        query = query.filter(models.Lecture.lec_grade == grade)
+    if college:
+        query = query.join(models.Depart, models.Lecture.dept_no == models.Depart.dept_no)\
+                     .filter(models.Depart.college == college)
+
+    # 전체 개수 및 페이징 처리
+    total = query.count()
+    lectures = query.order_by(models.Lecture.subject).offset((page - 1) * size).limit(size).all()
+
+    # 레거시 데이터(dept_no 없는 강의) 대비 fallback map - 필요할 때만 생성
+    dept_college_map = None
+
+    classes_result = []
+
+    for lec in lectures:
+        # 해당 강의의 수강생(COMPLETED) 조회
+        enrollments = db.query(models.Enrollment).options(
+            joinedload(models.Enrollment.user)
+        ).filter(
+            models.Enrollment.lecture_id == lec.lecture_id,
+            models.Enrollment.enroll_status == "COMPLETED"
+        ).all()
+
+        # college 필터가 없거나 이미 DB에서 걸렸으므로, 레거시 fallback만 처리
+        if college and not lec.dept_no:
+            if dept_college_map is None:
+                dept_college_map = {d.depart: d.college for d in db.query(models.Depart).all()}
+            if dept_college_map.get(lec.department) != college:
+                continue
+
+        student_list = []
+        for en in enrollments:
+            user = en.user
+            student_list.append({
+                "enrollment_id": en.id,
+                "user_id": en.user_id,
+                "student_id": user.loginid if user else "Unknown",
+                "name": user.user_name if user else "Unknown"
+            })
+
+        classes_result.append({
+            "lecture_id": lec.lecture_id,
+            "subject": lec.subject,
+            "capacity": lec.capacity or 0,
+            "count": lec.count or 0,
+            "students": student_list
         })
-    return {"classes": list(summary.values())}
+
+    return {
+        "classes": classes_result,
+        "total": total,
+        "page": page,
+        "size": size,
+        "total_pages": (total + size - 1) // size
+    }
 
 
 @app.get("/api/v1/admin/stats")
@@ -707,13 +877,12 @@ async def upload_courses_batch(file: UploadFile = File(...), db: Session = Depen
     reader = csv.DictReader(stringio)
     
     lectures_to_insert = []
-    # CSV 헤더 예시: subject, department, classroom, professor, type, credit, capacity, waitlist_capacity
+    # CSV 헤더 예시: subject, department, professor, type, credit, capacity, waitlist_capacity
     for row in reader:
         lectures_to_insert.append(
             models.Lecture(
                 subject=row.get("subject"),
                 department=row.get("department"),
-                classroom=row.get("classroom"),
                 professor=row.get("professor"),
                 type=row.get("type"),
                 credit=int(row.get("credit", 3)),
@@ -746,41 +915,82 @@ async def upload_courses_pdf(file: UploadFile = File(...), db: Session = Depends
     time_re = re.compile(r'([월화수목금토])\((\d{2}:\d{2})-(\d{2}:\d{2})\)')
     
     try:
+        # 루프 진입 전 사전 로드 — 행마다 쿼리 대신 dict 조회 (O(n) → O(1))
+        existing_course_nos = {
+            r[0] for r in db.query(models.Lecture.course_no).all()
+        }
+        dept_map = {
+            d.depart: d.dept_no for d in db.query(models.Depart).all()
+        }
+
         # PDF 파싱 (changepdftocsv.py 원본 로직 이식)
         with pdfplumber.open(tmp_path) as pdf:
             for page in pdf.pages:
                 table = page.extract_table()
                 if not table: continue
-                
+
+                current_grade = ""
+                current_type = ""
                 for row in table[1:]:
                     try:
-                        c_no = row[3].strip()
-                        raw_time = row[8] if row[8] else ""
-                        
-                        # 중복 여부 체크 (동일 학수번호)
-                        existing_lecture = db.query(models.Lecture).filter(models.Lecture.course_no == c_no).first()
-                        if existing_lecture:
+                        if len(row) < 10:
                             continue
                         
+                        c_no = row[3]
+                        if not c_no: continue
+                        c_no = c_no.strip()
+                        if not c_no.isdigit():
+                            continue
+                        
+                        raw_time = row[8] if row[8] else ""
+
+                        # 중복 여부 체크 — dict 조회 (쿼리 없음)
+                        if c_no in existing_course_nos:
+                            continue
+                        existing_course_nos.add(c_no)  # 같은 PDF 내 중복도 방지
+
+                        # 학년/구분 상태 유지 로직 추가 (빈칸이면 직전 값 유지)
+                        if row[0] and row[0].strip():
+                            current_grade = row[0].strip()
+                        if row[1] and row[1].strip():
+                            current_type = row[1].strip()
+                            
+                        # 구분 값 매핑 (models.py의 lecture_category enum은 한국어 값 사용)
+                        type_str = ""
+                        type_mapping = {
+                            '전필': '전공필수', '전선': '전공선택',
+                            '교필': '교양필수', '교선': '교양선택',
+                            '교직': '교직', '공통': '공통',
+                            '일선': '전공선택', '기필': '교양필수',
+                            '기선': '교양선택', '기초': '교양필수'
+                        }
+                        if current_type:
+                            key = current_type[:2] if len(current_type) >= 2 else current_type
+                            type_str = type_mapping.get(key, '전공선택')
+                        else:
+                            type_str = '전공선택'
+                            
+                        c_dept = row[2].replace('\n', '') if row[2] else ""
+                        c_prof = row[7].replace('\n', '') if row[7] else "미지정"
+                        c_room = row[9].replace('\n', '') if row[9] else "미지정"
+                        
                         # lecture_tb 데이터 생성
-                        dept_name = row[2].replace('\n', '')
-                        matched_dept = db.query(models.Depart).filter(models.Depart.depart == dept_name).first()
                         lecture = models.Lecture(
                             course_no=c_no,
-                            subject=row[4].replace('\n', ''),
-                            department=dept_name,
-                            dept_no=matched_dept.dept_no if matched_dept else None,
-                            lec_grade=row[1],
-                            credit=int(row[5]) if row[5].isdigit() else 3,
-                            professor=row[7].replace('\n', '') if row[7] else "미지정",
-                            classroom=row[9].replace('\n', '') if row[9] else "미지정",
-                            type=row[0][:2],
+                            subject=row[4].replace('\n', '') if row[4] else "",
+                            department=c_dept,
+                            dept_no=dept_map.get(c_dept),
+                            lec_grade=current_grade,
+                            credit=int(row[5]) if row[5] and str(row[5]).isdigit() else 3,
+                            professor=c_prof,
+                            classroom=c_room,
+                            type=type_str,
                             capacity=40,
                             version=0
                         )
                         db.add(lecture)
                         db.flush() # ID 획득을 위해 flush
-                        
+
                         # schedule_tb 데이터 분리 및 저장
                         matches = time_re.findall(raw_time)
                         for day, start, end in matches:
@@ -790,10 +1000,18 @@ async def upload_courses_pdf(file: UploadFile = File(...), db: Session = Depends
                                 start_min=to_mins(start),
                                 end_min=to_mins(end),
                                 start_time=start + ":00",
-                                end_time=end + ":00"
+                                end_time=end + ":00",
+                                classroom=c_room
                             )
                             db.add(schedule)
-                    except Exception:
+                        
+                        # 스케줄 정보가 없어도 강의실 자체는 강의 정보에 들어갔으므로 통과
+                        db.flush() # schedule도 flush를 바로 날려서 확인
+                    except Exception as loop_e:
+                        import traceback
+                        print(f"[{c_no}] Row processing failed:", row)
+                        traceback.print_exc()
+                        db.rollback()
                         continue
         db.commit()
     except Exception as e:
@@ -909,9 +1127,17 @@ def generate_form(req: FormRequest):
 def get_all_forms(db: Session = Depends(get_db)):
     """관리자용: 신청된 모든 폼 내역 조회"""
     forms = db.query(models.Form).order_by(models.Form.created_at.desc()).all()
+
+    # 관련 user_id만 모아 한 번에 조회 — 루프 내 N+1 제거
+    user_ids = list({f.user_id for f in forms if f.user_id})
+    user_map = {}
+    if user_ids:
+        users = db.query(models.User).filter(models.User.user_no.in_(user_ids)).all()
+        user_map = {u.user_no: u for u in users}
+
     result = []
     for f in forms:
-        user = db.query(models.User).filter(models.User.user_no == f.user_id).first()
+        user = user_map.get(f.user_id)
         result.append({
             "id": f.id,
             "form_type": f.form_type,
@@ -982,7 +1208,7 @@ def submit_grade(req: GradeRequest, db: Session = Depends(get_db)):
 
 # --- 사용자 정보 조회 ---
 @app.get("/api/v1/users/{user_id}")
-def get_user_profile(user_id: str, db: Session = Depends(get_db)):
+def get_user_profile(user_id: int, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.user_no == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
@@ -1002,7 +1228,7 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db)):
 
 # --- 사용자 정보 수정 ---
 @app.put("/api/v1/users/{user_id}")
-def update_user_profile(user_id: str, req: UserUpdateRequest, db: Session = Depends(get_db)):
+def update_user_profile(user_id: int, req: UserUpdateRequest, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.user_no == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
@@ -1065,7 +1291,7 @@ def save_enrollment_schedule(req: EnrollmentScheduleBulkRequest, db: Session = D
 
 
 @app.get("/api/v1/enrollment/access-check")
-def enrollment_access_check(user_id: str, lecture_id: Optional[int] = None, db: Session = Depends(get_db)):
+def enrollment_access_check(user_id: int, lecture_id: Optional[int] = None, db: Session = Depends(get_db)):
     """학생용: 현재 수강신청 가능 여부 및 활성 일차 반환"""
     user = db.query(models.User).filter(models.User.user_no == user_id).first()
     if not user:
@@ -1102,6 +1328,140 @@ def set_enrollment_period(req: EnrollmentPeriodRequest, db: Session = Depends(ge
 
     db.commit()
     return {"message": "수강신청 기간이 설정되었습니다."}
+
+# --- 서버 시간 API ---
+
+@app.get("/api/time")
+def get_server_time(db: Session = Depends(get_db)):
+    """외부 서버 시간 확인 사이트(네이비즘 등)가 참조하는 서버 시간 엔드포인트.
+    SystemConfig에 저장된 오프셋(ms)을 적용한 UTC 기준 Unix 타임스탬프(ms) 반환."""
+    offset_cfg = db.query(models.SystemConfig).filter(models.SystemConfig.key == "server_time_offset_ms").first()
+    offset_ms = int(offset_cfg.value) if offset_cfg else 0
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000) + offset_ms
+    return {"timestamp_ms": now_ms, "offset_ms": offset_ms}
+
+
+@app.get("/api/v1/admin/server-time")
+def get_server_time_config(db: Session = Depends(get_db)):
+    """관리자용: 현재 서버 시간 + 오프셋 설정 조회"""
+    offset_cfg = db.query(models.SystemConfig).filter(models.SystemConfig.key == "server_time_offset_ms").first()
+    offset_ms = int(offset_cfg.value) if offset_cfg else 0
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000) + offset_ms
+    return {"timestamp_ms": now_ms, "offset_ms": offset_ms}
+
+
+class ServerTimeOffsetRequest(BaseModel):
+    offset_ms: int  # 조정할 오프셋 (밀리초, 음수 가능)
+
+
+@app.post("/api/v1/admin/server-time-offset")
+def set_server_time_offset(req: ServerTimeOffsetRequest, db: Session = Depends(get_db)):
+    """관리자용: 서버 시간 오프셋 설정 (ms 단위)"""
+    cfg = db.query(models.SystemConfig).filter(models.SystemConfig.key == "server_time_offset_ms").first()
+    if cfg:
+        cfg.value = str(req.offset_ms)
+    else:
+        db.add(models.SystemConfig(key="server_time_offset_ms", value=str(req.offset_ms)))
+    db.commit()
+    return {"message": "서버 시간 오프셋이 설정되었습니다.", "offset_ms": req.offset_ms}
+
+
+# --- 시스템 상태 캐시 변수 (메모리 상주) ---
+_cached_system_status = None
+_last_status_update = 0
+
+@app.get("/api/v1/admin/system-status")
+def get_system_status(db: Session = Depends(get_db)):
+    """관리자용: 시스템 모니터링 데이터 (초극한 최적화: 1 RTT + 캐시)"""
+    global _cached_system_status, _last_status_update
+    
+    now_ts = time.time()
+    # 3초 캐시: 초고속 응답
+    if _cached_system_status and (now_ts - _last_status_update < 3):
+        return _cached_system_status
+
+    t0 = time.time()
+    try:
+        # PostgreSQL의 JSON 기능을 활용해 메트릭, 최근 내역, 일정을 한 번의 DB 왕복으로 모두 가져옴
+        super_query = text("""
+            WITH stats AS (
+                SELECT 
+                    (SELECT count(*) FROM enroll_tb WHERE enroll_status = 'COMPLETED') as completed,
+                    (SELECT count(*) FROM enroll_tb WHERE enroll_status = 'BASKET') as basket,
+                    (SELECT count(*) FROM enroll_tb WHERE enroll_status = 'CANCELED') as canceled,
+                    (SELECT count(*) FROM waitlist_tb WHERE status = 'WAITING') as waiting,
+                    (SELECT count(*) FROM waitlist_tb WHERE status = 'PROMOTED') as promoted,
+                    (SELECT count(*) FROM user_tb WHERE role = 'STUDENT') as students,
+                    (SELECT count(*) FROM lecture_tb) as lectures,
+                    (SELECT value FROM system_config_tb WHERE key = 'server_time_offset_ms' LIMIT 1) as offset_ms
+            ),
+            recent AS (
+                SELECT array_to_json(array_agg(t)) as list
+                FROM (
+                    SELECT enroll_no, loginid as user_id, lecture_id, enroll_status as status, 
+                           to_char(createdat, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at
+                    FROM enroll_tb
+                    ORDER BY createdat DESC
+                    LIMIT 5
+                ) t
+            ),
+            active AS (
+                SELECT row_to_json(s) as info
+                FROM (
+                    SELECT day_number, restriction_type, 
+                           to_char(close_datetime, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as close_datetime
+                    FROM enroll_schedule_tb
+                    WHERE is_active = true 
+                      AND open_datetime <= (now() AT TIME ZONE 'UTC')
+                      AND close_datetime >= (now() AT TIME ZONE 'UTC')
+                    ORDER BY day_number ASC
+                    LIMIT 1
+                ) s
+            )
+            SELECT stats.*, recent.list as recent_list, active.info as active_info
+            FROM stats, recent, active;
+        """)
+        
+        row = db.execute(super_query).fetchone()
+        db_latency_ms = round((time.time() - t0) * 1000, 1)
+
+        # JSON 파싱 및 결과 구성
+        recent_enrollments = row.recent_list if row.recent_list else []
+        active_day = row.active_info # 이미 dict 형태
+        offset_ms = int(row.offset_ms) if row.offset_ms else 0
+        server_time_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+
+        result = {
+            "db_status": "정상",
+            "db_latency_ms": db_latency_ms,
+            "server_time_ms": server_time_ms + offset_ms,
+            "offset_ms": offset_ms,
+            "enrollment_active": active_day is not None,
+            "active_day": active_day,
+            "enrollments": {
+                "completed": row.completed,
+                "basket": row.basket,
+                "canceled": row.canceled
+            },
+            "waitlist": {
+                "waiting": row.waiting,
+                "promoted": row.promoted
+            },
+            "total_students": row.students,
+            "total_lectures": row.lectures,
+            "recent_enrollments": recent_enrollments
+        }
+        
+        _cached_system_status = result
+        _last_status_update = now_ts
+        return result
+
+    except Exception as e:
+        logger.error(f"Super status error: {e}")
+        db.rollback()
+        return {"db_status": "오류", "db_latency_ms": -1}
+
+
 
 # --- 프론트엔드 정적 파일 서빙 ---
 # (API 경로를 먼저 정의한 후 마지막에 마운트해야 API가 우선순위를 가집니다)

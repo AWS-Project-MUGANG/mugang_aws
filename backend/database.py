@@ -10,11 +10,22 @@ load_dotenv()
 # 로컬 테스트를 위해 임시 sqlite 사용 가능, 가이드라인에 따라 PostgreSQL 주소 입력 필요
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./test.db")
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, 
-    # sqlite 사용 시 필요한 옵션 (Postgres 사용 시 제거 가능)
-    connect_args={"check_same_thread": False} if "sqlite" in SQLALCHEMY_DATABASE_URL else {}
-)
+_is_sqlite = "sqlite" in SQLALCHEMY_DATABASE_URL
+
+engine_args = {
+    "connect_args": {"check_same_thread": False} if _is_sqlite else {}
+}
+
+if not _is_sqlite:
+    engine_args.update({
+        "pool_size": 20,
+        "max_overflow": 30,
+        "pool_pre_ping": False,
+        "pool_recycle": 3600,
+        "pool_timeout": 10
+    })
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL, **engine_args)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

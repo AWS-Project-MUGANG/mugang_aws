@@ -15,6 +15,7 @@
             border: 1px solid #e0e0e0;
             box-shadow: 0 1px 4px rgba(0,0,0,0.08);
         }
+        .day-card.basket { border-left: 5px solid #ef5350; }
         .day-card.day-1 { border-left: 5px solid #1976d2; }
         .day-card.day-2 { border-left: 5px solid #388e3c; }
         .day-card.day-3 { border-left: 5px solid #f57c00; }
@@ -119,19 +120,19 @@
     <aside class="sidebar">
         <div class="sidebar-header" style="background-color: #37474f;">
             <div class="student-info">
-                <span class="name" id="staff-name">관리자</span>
-                <span class="id" id="staff-id">Staff</span>
+                <span class="name" id="staff-name"></span>
+                <span class="id" id="staff-id"></span>
             </div>
             <div class="department-info">
-                <p>교무처</p>
-                <p class="sub-dept">수강신청 관리</p>
+                <p></p>
+                <p class="sub-dept"></p>
             </div>
         </div>
         <nav class="sidebar-nav">
-            <button class="nav-item" onclick="location.href='dashboard.html'">대시보드 홈</button>
-            <button class="nav-item" onclick="location.href='approvals.html'">결재 / 서류 반려함</button>
-            <button class="nav-item active" id="tab-schedule">수강신청 기간 설정</button>
-            <button class="nav-item" onclick="location.href='rag_update.html'">학사 규정 AI 업데이트</button>
+            <button class="nav-item active" onclick="location.href='enrollment_schedule.html'">수강신청 기간 설정</button>
+            <button class="nav-item" onclick="location.href='course_management.html'">개설 관리</button>
+            <button class="nav-item" onclick="location.href='rag_update.html'">AI 학사 규정</button>
+            <button class="nav-item" onclick="location.href='server_management.html'">서버 관리</button>
             <button class="nav-item logout-btn" onclick="logout()">로그아웃</button>
         </nav>
     </aside>
@@ -140,8 +141,7 @@
     <main class="main-content">
         <header class="top-header">
             <div class="logo-area">
-                <h1>무강대학교 - 관리자 센터</h1>
-                <span class="logo-sub">수강신청 기간 · 일차별 제한 설정</span>
+                <h1>무강대학교 - 수강신청 일정 관리</h1>
             </div>
         </header>
 
@@ -151,6 +151,35 @@
             <div id="status-banner" class="status-banner status-inactive">
                 <span id="status-icon">⏳</span>
                 <span id="status-text">수강신청 일정을 불러오는 중...</span>
+            </div>
+
+             <!-- 예비 수강신청 -->
+            <div class="day-card basket">
+                <div class="day-header">
+                    <h3>📅 예비 수강신청</h3>
+                    <span class="restriction-badge badge-blue">대학 전체</span>
+                    <div class="toggle-row">
+                        <span>활성화</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="day0-active" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="datetime-grid">
+                    <div>
+                        <label>🔓 오픈 날짜 / 시간</label>
+                        <input type="datetime-local" id="day0-open">
+                    </div>
+                    <div>
+                        <label>🔒 마감 날짜 / 시간</label>
+                        <input type="datetime-local" id="day0-close">
+                    </div>
+                </div>
+                <div class="info-box">
+                    ℹ️ <strong>제한 없음:</strong>
+                    단과대학·학과에 관계없이 <strong>학교 전체 강의</strong>를 수강신청할 수 있습니다.
+                </div>
             </div>
 
             <!-- 1일차 -->
@@ -283,13 +312,30 @@ const RESTRICTION_LABELS = {
 
 // ---- 인증 확인 ----
 const role = localStorage.getItem('role');
-const userId = localStorage.getItem('user_id');
-if (!userId || (role !== 'staff' && role !== 'admin')) {
-    alert('관리자(staff) 권한이 필요합니다.');
-    location.href = '../auth/login.html';
+const userId = localStorage.getItem('user_no');
+const token = localStorage.getItem('access_token');
+
+// 실제 DB 프로필 → 사이드바 반영
+(async () => {
+    try {
+        const res = await fetch(`/api/v1/users/${userId}`);
+        if (res.ok) {
+            const p = await res.json();
+            document.getElementById('staff-name').textContent = p.name;
+            document.getElementById('staff-id').textContent = p.student_id;
+            const deptEl = document.querySelector('.sidebar-header .department-info p');
+            const subEl  = document.querySelector('.sidebar-header .department-info .sub-dept');
+            if (deptEl) deptEl.textContent = p.college || '-';
+            if (subEl)  subEl.textContent  = p.depart  || '-';
+        }
+    } catch (e) { console.error('프로필 로드 오류:', e); }
+})();
+
+function switchNav(href, tabId) {
+    document.querySelectorAll('.sidebar-nav .nav-item').forEach(btn => btn.classList.remove('active'));
+    document.getElementById(tabId).classList.add('active');
+    location.href = href;
 }
-const storedName = localStorage.getItem('name');
-if (storedName) document.getElementById('staff-name').textContent = storedName;
 
 function logout() {
     localStorage.clear();
@@ -332,7 +378,9 @@ function getStatusCell(openStr, closeStr, isActive) {
 // ---- 일정 로드 ----
 async function loadSchedule() {
     try {
-        const res  = await fetch(`${API_BASE}/api/v1/admin/enrollment-schedule`);
+        const res  = await fetch(`${API_BASE}/api/v1/admin/enrollment-schedule`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
         const data = await res.json();
         const schedules = data.schedules || [];
 
@@ -359,6 +407,8 @@ function updateStatusBanner(schedules) {
     const banner = document.getElementById('status-banner');
     const text   = document.getElementById('status-text');
     const now    = new Date();
+    const DAY_LABELS = { 0: '예비', 1: '1일차', 2: '2일차', 3: '3일차' };
+    const label = (n) => DAY_LABELS[n] ?? `${n}일차`;
 
     const active = schedules.find(s => {
         if (!s.is_active) return false;
@@ -367,7 +417,7 @@ function updateStatusBanner(schedules) {
 
     if (active) {
         banner.className = 'status-banner status-active';
-        text.textContent = `✅ 현재 ${active.day_number}일차 수강신청 진행 중 | 마감: ${formatKST(active.close_datetime)}`;
+        text.textContent = `✅ 현재 ${label(active.day_number)} 수강신청 진행 중 | 마감: ${formatKST(active.close_datetime)}`;
         return;
     }
 
@@ -377,7 +427,7 @@ function updateStatusBanner(schedules) {
 
     if (next) {
         banner.className = 'status-banner status-upcoming';
-        text.textContent = `⏰ 다음 수강신청: ${next.day_number}일차 | 오픈: ${formatKST(next.open_datetime)}`;
+        text.textContent = `⏰ 다음 수강신청: ${label(next.day_number)} | 오픈: ${formatKST(next.open_datetime)}`;
     } else {
         banner.className = 'status-banner status-inactive';
         text.textContent = '⏳ 현재 수강신청 비활성 상태입니다. 일정을 설정해 주세요.';
@@ -390,9 +440,10 @@ function renderTable(schedules) {
         tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#aaa;padding:20px;">저장된 일정 없음</td></tr>`;
         return;
     }
+    const DAY_LABELS = { 0: '예비', 1: '1일차', 2: '2일차', 3: '3일차' };
     tbody.innerHTML = schedules.map(s => `
         <tr>
-            <td><strong>${s.day_number}일차</strong></td>
+            <td><strong>${DAY_LABELS[s.day_number] ?? s.day_number + '일차'}</strong></td>
             <td>${RESTRICTION_LABELS[s.restriction_type] || s.restriction_type}</td>
             <td>${formatKST(s.open_datetime)}</td>
             <td>${formatKST(s.close_datetime)}</td>
@@ -404,37 +455,50 @@ function renderTable(schedules) {
 // ---- 저장 ----
 async function saveSchedule() {
     const DAY_RESTRICTIONS = {
+        0: 'all',
         1: 'own_grade_dept',
         2: 'own_college',
         3: 'all'
     };
+    const DAY_LABELS = { 0: '예비', 1: '1일차', 2: '2일차', 3: '3일차' };
 
     // 유효성 검사
-    for (let n = 1; n <= 3; n++) {
+    for (let n = 0; n <= 3; n++) {
+        const isActive = document.getElementById(`day${n}-active`).checked;
         const open  = document.getElementById(`day${n}-open`).value;
         const close = document.getElementById(`day${n}-close`).value;
-        if (!open || !close) {
-            alert(`${n}일차의 오픈/마감 날짜·시간을 모두 입력해 주세요.`);
-            return;
-        }
-        if (new Date(open) >= new Date(close)) {
-            alert(`${n}일차: 마감 시간이 오픈 시간보다 늦어야 합니다.`);
-            return;
+
+        if (isActive) {
+            if (!open || !close) {
+                alert(`${DAY_LABELS[n]} 수강신청이 활성화되어 있습니다. 오픈/마감 날짜·시간을 모두 입력해 주세요.`);
+                return;
+            }
+            if (new Date(open) >= new Date(close)) {
+                alert(`${DAY_LABELS[n]}: 마감 시간이 오픈 시간보다 늦어야 합니다.`);
+                return;
+            }
         }
     }
 
-    const schedules = [1, 2, 3].map(n => ({
-        day_number:       n,
-        open_datetime:    localInputToUTC(document.getElementById(`day${n}-open`).value),
-        close_datetime:   localInputToUTC(document.getElementById(`day${n}-close`).value),
-        restriction_type: DAY_RESTRICTIONS[n],
-        is_active:        document.getElementById(`day${n}-active`).checked
-    }));
+    const schedules = [0, 1, 2, 3].map(n => {
+        const openVal = document.getElementById(`day${n}-open`).value;
+        const closeVal = document.getElementById(`day${n}-close`).value;
+        return {
+            day_number:       n,
+            open_datetime:    openVal ? localInputToUTC(openVal) : null,
+            close_datetime:   closeVal ? localInputToUTC(closeVal) : null,
+            restriction_type: DAY_RESTRICTIONS[n],
+            is_active:        document.getElementById(`day${n}-active`).checked
+        };
+    });
 
     try {
         const res = await fetch(`${API_BASE}/api/v1/admin/enrollment-schedule`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
             body: JSON.stringify({ schedules })
         });
         const data = await res.json();

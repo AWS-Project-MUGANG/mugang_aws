@@ -3,6 +3,19 @@
 version: '3.8'
 
 services:
+  # DB 접속용 SSH 터널링 컨테이너
+  db-tunnel:
+    image: alpine
+    volumes:
+      - ./mugang-key.pem:/tmp/key/mugang-key.pem:ro
+    command: >
+      sh -c "apk add --no-cache openssh-client &&
+             cp /tmp/key/mugang-key.pem /root/key.pem &&
+             chmod 400 /root/key.pem &&
+             ssh -o StrictHostKeyChecking=no -i /root/key.pem -N -L 0.0.0.0:5432:terraform-20260303070103185000000001.cba8sagacwbn.ap-northeast-2.rds.amazonaws.com:5432 ec2-user@3.34.141.17"
+    ports:
+      - "5432:5432"
+
   # 백엔드 (FastAPI) 컨테이너
   backend:
     build:
@@ -10,10 +23,11 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    depends_on:
+      - db-tunnel
     environment:
-      - DATABASE_URL=sqlite:///./test.db # 향후 RDS 호스트 입력
-    volumes:
-      - ./backend:/app # 로컬 코드 변경 실시간 반영
+      # 개별 터미널 대신 db-tunnel 컨테이너를 통해 실제 AWS RDS에 접속
+      - DATABASE_URL=postgresql://mugangadmin:!!anrkddl615@db-tunnel:5432/mugang
 
   # 프론트엔드 (바닐라 JS + Nginx) 컨테이너
   frontend:
@@ -21,7 +35,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "80:80"
+      - "8888:80"
     # 프론트 컨테이너 시작 전 백엔드 서버가 먼저 켜지게 의존성 설정
     depends_on:
       - backend
