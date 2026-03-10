@@ -21,7 +21,7 @@
 
 ### 2. 전체 아키텍처 및 네트워크 격리 전략 (1분 30초)
 - **아키텍처 구조 (Architecture)**:
-![alt text](image-1.png)
+![alt text](image-2.png)
 ```mermaid
 graph TD;
     User((User)) -->|HTTP/80| ALB;
