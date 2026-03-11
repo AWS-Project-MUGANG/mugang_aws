@@ -1550,6 +1550,7 @@ def load_manual_from_local(db: Session = Depends(get_db)):
     # 2. 파싱 및 텍스트 추출
     content = ""
     try:
+        logger.info(f"'{file_path}' 파일 파싱을 시작합니다...")
         with pdfplumber.open(file_path) as pdf:
             page_contents = []
             for i, page in enumerate(pdf.pages, 1):
@@ -1557,6 +1558,7 @@ def load_manual_from_local(db: Session = Depends(get_db)):
                 page_contents.append(text)
             content = "\n\n".join(page_contents)
     except Exception as e:
+        logger.error(f"PDF 파싱 중 심각한 오류 발생: {e}", exc_info=True)
         logger.error(f"PDF Parsing Error: {e}")
         raise HTTPException(status_code=500, detail=f"PDF 파싱 실패: {str(e)}")
 
@@ -1564,6 +1566,7 @@ def load_manual_from_local(db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="PDF에서 텍스트를 추출할 수 없습니다.")
 
     # 3. 청킹 (Chunking) 및 임베딩
+    logger.info(f"총 {len(content)}자의 텍스트를 추출했습니다. 청킹 및 임베딩을 시작합니다.")
     chunks = []
     current_chunk = ""
     for p in content.split('\n\n'):
@@ -1578,6 +1581,7 @@ def load_manual_from_local(db: Session = Depends(get_db)):
     title = "2026 학생 매뉴얼"
     count = 0
     for i, chunk in enumerate(chunks):
+        logger.info(f"청크 {i+1}/{len(chunks)} 임베딩 및 저장 중...")
         if not chunk.strip(): continue
         vector = get_embedding(chunk)
         if vector:
@@ -1589,6 +1593,13 @@ def load_manual_from_local(db: Session = Depends(get_db)):
             )
             db.add(new_doc)
             count += 1
+    try:
+        db.commit()
+        logger.info(f"총 {count}개의 청크를 DB에 성공적으로 커밋했습니다.")
+    except Exception as e:
+        logger.error(f"DB 커밋 중 오류 발생: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"임베딩 데이터 저장 중 DB 오류가 발생했습니다: {str(e)}")
     
     db.commit()
     
