@@ -1,41 +1,41 @@
-# 개발 및 테스트를 위한 Docker Compose 설정
-# 실제 AWS(EKS) 배포시에는 Kubernetes 매니페스트(yaml)로 변환되어 사용됩니다.
-version: '3.8'
-
-services:
-  # DB 접속용 SSH 터널링 컨테이너
-  db-tunnel:
-    image: alpine
-    volumes:
-      - ./mugang-key.pem:/tmp/key/mugang-key.pem:ro
-    command: >
-      sh -c "apk add --no-cache openssh-client &&
-             cp /tmp/key/mugang-key.pem /root/key.pem &&
-             chmod 400 /root/key.pem &&
-             ssh -o StrictHostKeyChecking=no -i /root/key.pem -N -L 0.0.0.0:5432:terraform-20260303070103185000000001.cba8sagacwbn.ap-northeast-2.rds.amazonaws.com:5432 ec2-user@3.34.141.17"
+﻿services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: mugang
+      POSTGRES_USER: mugang
+      POSTGRES_PASSWORD: mugang
     ports:
       - "5432:5432"
+    volumes:
+      - mugang_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mugang -d mugang"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
-  # 백엔드 (FastAPI) 컨테이너
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://mugang:mugang@db:5432/mugang
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "8000:8000"
-    depends_on:
-      - db-tunnel
-    environment:
-      # 개별 터미널 대신 db-tunnel 컨테이너를 통해 실제 AWS RDS에 접속
-      - DATABASE_URL=postgresql://mugangadmin:!!anrkddl615@db-tunnel:5432/mugang
+    restart: unless-stopped
 
-  # 프론트엔드 (바닐라 JS + Nginx) 컨테이너
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    ports:
-      - "8888:80"
-    # 프론트 컨테이너 시작 전 백엔드 서버가 먼저 켜지게 의존성 설정
     depends_on:
       - backend
+    ports:
+      - "8888:80"
+
+volumes:
+  mugang_pgdata:
