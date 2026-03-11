@@ -1462,6 +1462,21 @@ async def upload_rag_document(
     except Exception as e:
         logger.error(f"RAG Upload Failed: {e}")
         raise HTTPException(status_code=500, detail="문서 처리 중 오류가 발생했습니다.")
+def upload_rag_document(req: RAGUploadRequest, db: Session = Depends(get_db)):
+    """관리자용: AI 학사 규정 문서 업로드 (notice_tb 저장)"""
+    # 현재 스키마에는 RAG 전용 테이블이 없어 notice_tb를 지식베이스 저장소로 재사용한다.
+    new_notice = models.Notice(
+        title=f"[RAG] {req.title}",
+        content=req.content,
+        author_id=None
+    )
+    db.add(new_notice)
+    db.commit()
+    db.refresh(new_notice)
+    return {
+        "message": f"'{req.title}' 항목이 AI 학사 규정 저장소에 등록되었습니다.",
+        "id": new_notice.id
+    }
 
 
 # --- 공지사항 ---

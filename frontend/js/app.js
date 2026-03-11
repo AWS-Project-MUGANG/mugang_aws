@@ -654,27 +654,25 @@ async function loadUserProfile() {
             userProfile = data; // 일차별 제한 필터에 사용
             const nameEl = document.querySelector('.student-info .name');
             const idEl = document.querySelector('.student-info .id');
-            const collegeEl = document.querySelector('.department-info p:first-child');
+            const collegeEl = document.querySelector('.department-info p:not(.sub-dept)');
             const subDeptEl = document.querySelector('.department-info .sub-dept');
             const yearEl = document.querySelector('.department-info .year');
-            console.log('[profile] data:', data);
+            
             if (nameEl) nameEl.innerText = data.name || '-';
             if (idEl) idEl.innerText = data.student_id || data.loginid || '-';
             
             const isStaff = data.role === 'STAFF';
             
             if (collegeEl) {
-                if (isStaff) {
-                    collegeEl.innerText = '교직원';
-                } else {
-                    collegeEl.innerText = data.college || '소속 대학 없음';
-                }
+                collegeEl.innerText = isStaff ? '교직원' : (data.college || '소속 대학 없음');
             }
+            
             if (subDeptEl) {
                 if (isStaff) {
                     subDeptEl.innerHTML = data.depart || '소속 부서 없음';
                 } else {
                     const departText = data.depart || '소속 학과 없음';
+                    // grade span is inside sub-dept
                     const gradeText = data.grade ? ` <span class="year">${data.grade}학년</span>` : '';
                     subDeptEl.innerHTML = departText + gradeText;
                 }

@@ -127,6 +127,36 @@ class Notice(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class ChatSession(Base):
+    __tablename__ = "chat_session_tb"
+
+    id = Column(String(100), primary_key=True)
+    user_id = Column(BigInteger, ForeignKey("user_tb.user_no", ondelete="CASCADE"), index=True)
+    title = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_message_tb"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id = Column(String(100), ForeignKey("chat_session_tb.id", ondelete="CASCADE"), index=True)
+    role = Column(String(20), nullable=False)  # user | assistant
+    content = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class Form(Base):
+    __tablename__ = "form_tb"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(BigInteger, ForeignKey("user_tb.user_no", ondelete="CASCADE"), index=True)
+    form_type = Column(String(100), nullable=False)
+    form_data = Column(JSON, nullable=True)
+    status = Column(String(20), default="pending", index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class Waitlist(Base):
     """수강신청 대기열 (FIFO) 테이블"""
     __tablename__ = "waitlist_tb"
