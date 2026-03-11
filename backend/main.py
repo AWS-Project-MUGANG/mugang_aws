@@ -104,7 +104,7 @@ if os.path.exists(frontend_path):
     app.mount("/static", StaticFiles(directory=frontend_path), name="static")
     logger.info(f"정적 파일 경로 연결됨: {frontend_path}")
 else:
-    logger.warning(f"정적 파일 경로를 찾을 수 없습니다 (도커 환경 혹은 경로 오류): {frontend_path}")
+    logger.info(f"정적 파일 경로 없음 (Docker/MSA 환경에서는 Nginx가 처리하므로 무시 가능): {frontend_path}")
 
 # ---- API 요청/응답 데이터 모델 (Pydantic) ----
 class FirstSetupRequest(BaseModel):
@@ -1535,17 +1535,27 @@ async def upload_rag_document(
 def load_manual_from_local(db: Session = Depends(get_db)):
     """
     관리자용: 서버 로컬에 위치한 '@2026_2026_student_menual.pdf' 파일을 읽어
+    관리자용: 서버 로컬에 위치한 '2026_student_menual.pdf' 파일을 읽어
     자동으로 텍스트를 추출하고 임베딩하여 RAG DB에 적재합니다.
     """
     filename = "@2026_2026_student_menual.pdf"
-    # 1. 파일 경로 탐색 (mugang_aws/pdf 폴더 고정 확인)
-    base_dir = os.path.dirname(__file__)
-    # backend 상위 폴더(mugang_aws) -> pdf 폴더
-    file_path = os.path.join(base_dir, "..", "pdf", filename)
+    filename = "2026_student_menual.pdf"
     
-    if not os.path.exists(file_path):
-        abs_path = os.path.abspath(os.path.join(base_dir, "..", "pdf"))
-        raise HTTPException(status_code=404, detail=f"서버에서 '{filename}' 파일을 찾을 수 없습니다. 파일을 '{abs_path}' 폴더에 위치시켜주세요.")
+    # 1. 파일 경로 탐색 (우선순위: backend/pdf > 상위/pdf)
+    base_dir = os.path.dirname(__file__)
+    candidates = [
+        os.path.join(base_dir, "pdf", filename),      # 1순위: backend/pdf (배포 환경 권장)
+        os.path.join(base_dir, "..", "pdf", filename) # 2순위: mugang_aws/pdf (기존 로컬 환경)
+    ]
+    
+    file_path = None
+    for path in candidates:
+        if os.path.exists(path):
+            file_path = path
+            break
+            
+    if not file_path:
+        raise HTTPException(status_code=404, detail=f"서버에서 '{filename}' 파일을 찾을 수 없습니다. 'backend/pdf' 폴더에 파일을 넣어주세요.")
 
     # 2. 파싱 및 텍스트 추출
     content = ""
@@ -1600,8 +1610,6 @@ def load_manual_from_local(db: Session = Depends(get_db)):
         logger.error(f"DB 커밋 중 오류 발생: {e}", exc_info=True)
         db.rollback()
         raise HTTPException(status_code=500, detail=f"임베딩 데이터 저장 중 DB 오류가 발생했습니다: {str(e)}")
-    
-    db.commit()
     
     return {
         "message": "PDF 임베딩 및 DB 저장이 완료되었습니다.",
