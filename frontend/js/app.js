@@ -654,10 +654,11 @@ async function loadUserProfile() {
             userProfile = data; // 일차별 제한 필터에 사용
             const nameEl = document.querySelector('.student-info .name');
             const idEl = document.querySelector('.student-info .id');
-            const collegeEl = document.querySelector('.department-info p:not(.sub-dept)');
+            const collegeEl = document.querySelector('.department-info p:first-child');
             const subDeptEl = document.querySelector('.department-info .sub-dept');
             const yearEl = document.querySelector('.department-info .year');
             
+            console.log('[profile] data:', data);
             if (nameEl) nameEl.innerText = data.name || '-';
             if (idEl) idEl.innerText = data.student_id || data.loginid || '-';
             
@@ -665,6 +666,11 @@ async function loadUserProfile() {
             
             if (collegeEl) {
                 collegeEl.innerText = isStaff ? '교직원' : (data.college || '소속 대학 없음');
+                if (isStaff) {
+                    collegeEl.innerText = '교직원';
+                } else {
+                    collegeEl.innerText = data.college || '소속 대학 없음';
+                }
             }
             
             if (subDeptEl) {
@@ -681,6 +687,106 @@ async function loadUserProfile() {
     } catch (e) { console.error('Failed to load user profile:', e); }
 }
 
+// --- 챗봇 기능 추가 ---
+function initChatbot() {
+    // 이미 생성되었으면 중단
+    if (document.getElementById('chatbot-container')) return;
+
+    // 1. 챗봇 아이콘 버튼 (우측 하단)
+    const iconHTML = `
+        <div id="chatbot-icon" onclick="toggleChat()" 
+             style="position:fixed; bottom:20px; right:20px; width:60px; height:60px; background:#2e7d32; border-radius:50%; cursor:pointer; display:flex; justify-content:center; align-items:center; box-shadow:0 4px 10px rgba(0,0,0,0.3); z-index:9999; transition: transform 0.2s;">
+            <span style="font-size:30px;">🤖</span>
+        </div>`;
+    
+    // 2. 채팅창 컨테이너 (초기엔 숨김)
+    const chatHTML = `
+        <div id="chatbot-container" style="display:none; position:fixed; bottom:90px; right:20px; width:360px; height:520px; background:white; border:1px solid #ddd; border-radius:12px; box-shadow:0 5px 20px rgba(0,0,0,0.2); flex-direction:column; z-index:9999; overflow:hidden; font-family:'Noto Sans KR', sans-serif;">
+            <!-- 헤더 -->
+            <div style="background:#2e7d32; color:white; padding:15px; font-weight:bold; display:flex; justify-content:space-between; align-items:center; font-size:1.1rem;">
+                <span>🎓 무강대 AI 학사 도우미</span>
+                <button onclick="toggleChat()" style="background:none; border:none; color:white; cursor:pointer; font-size:1.2rem;">✖</button>
+            </div>
+            
+            <!-- 메시지 영역 -->
+            <div id="chat-messages" style="flex:1; padding:15px; overflow-y:auto; background:#f5f5f5; display:flex; flex-direction:column; gap:10px;">
+                <div style="align-self:flex-start; background:white; padding:10px 14px; border-radius:12px 12px 12px 0; max-width:85%; box-shadow:0 1px 2px rgba(0,0,0,0.1); border:1px solid #eee;">
+                    안녕하세요! 👋<br>2026학년도 학사 규정에 대해 무엇이든 물어보세요.
+                </div>
+            </div>
+            
+            <!-- 입력 영역 -->
+            <div style="border-top:1px solid #eee; padding:12px; display:flex; background:white;">
+                <input type="text" id="chat-input" placeholder="질문을 입력하세요..." style="flex:1; padding:10px; border:1px solid #ddd; border-radius:20px; outline:none; font-size:0.95rem;" onkeypress="if(event.key==='Enter') sendChatMessage()">
+                <button onclick="sendChatMessage()" style="margin-left:8px; padding:0 15px; background:#2e7d32; color:white; border:none; border-radius:20px; cursor:pointer; font-weight:bold;">전송</button>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', iconHTML + chatHTML);
+}
+
+// 채팅창 열기/닫기 토글
+window.toggleChat = function() {
+    const container = document.getElementById('chatbot-container');
+    const icon = document.getElementById('chatbot-icon');
+    
+    if (container.style.display === 'none') {
+        container.style.display = 'flex';
+        icon.style.transform = 'scale(0)'; // 아이콘 숨김 효과
+        setTimeout(() => document.getElementById('chat-input').focus(), 100);
+    } else {
+        container.style.display = 'none';
+        icon.style.transform = 'scale(1)';
+    }
+};
+
+// 메시지 전송 로직
+window.sendChatMessage = async function() {
+    const input = document.getElementById('chat-input');
+    const msg = input.value.trim();
+    if (!msg) return;
+
+    const chatBox = document.getElementById('chat-messages');
+
+    // 1. 사용자 메시지 표시
+    chatBox.insertAdjacentHTML('beforeend', `<div style="align-self:flex-end; background:#2e7d32; color:white; padding:10px 14px; border-radius:12px 12px 0 12px; max-width:85%; box-shadow:0 1px 2px rgba(0,0,0,0.1); word-break: break-word;">${msg}</div>`);
+    input.value = '';
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    // 2. 로딩 표시
+    const loadingId = 'loading-' + Date.now();
+    chatBox.insertAdjacentHTML('beforeend', `<div id="${loadingId}" style="align-self:flex-start; background:white; padding:10px 14px; border-radius:12px 12px 12px 0; max-width:85%; border:1px solid #eee; color:#666;">답변 생성 중... 💬</div>`);
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    try {
+        const res = await fetch('/api/v1/chat/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: parseInt(userId || 0),
+                session_id: `sess_${userId || 'guest'}`, // 세션 ID 생성
+                message: msg
+            })
+        });
+
+        document.getElementById(loadingId)?.remove();
+
+        if (res.ok) {
+            const data = await res.json();
+            // 3. AI 답변 표시
+            chatBox.insertAdjacentHTML('beforeend', `<div style="align-self:flex-start; background:white; padding:10px 14px; border-radius:12px 12px 12px 0; max-width:85%; box-shadow:0 1px 2px rgba(0,0,0,0.1); border:1px solid #eee; line-height:1.5;">${data.reply.replace(/\n/g, '<br>')}</div>`);
+        } else {
+            chatBox.insertAdjacentHTML('beforeend', `<div style="align-self:flex-start; background:#ffebee; color:#c62828; padding:10px 14px; border-radius:12px; border:1px solid #ffcdd2;">오류가 발생했습니다. 잠시 후 다시 시도해주세요.</div>`);
+        }
+    } catch (e) {
+        console.error(e);
+        document.getElementById(loadingId)?.remove();
+        chatBox.insertAdjacentHTML('beforeend', `<div style="align-self:flex-start; background:#ffebee; color:#c62828; padding:10px 14px; border-radius:12px;">서버 연결에 실패했습니다.</div>`);
+    }
+    chatBox.scrollTop = chatBox.scrollHeight;
+};
+
 // 초기화
 window.onload = async function() {
     // 세션 체크
@@ -694,6 +800,7 @@ window.onload = async function() {
     await loadEnrollments();
     await loadStats();
     await loadNotices();
+    initChatbot(); // 챗봇 UI 초기화 실행
 };
 
 window.generateCertificatePDF = async function() {

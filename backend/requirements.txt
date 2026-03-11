@@ -13,4 +13,4 @@ bcrypt
 pgvector
 boto3
 pdfplumber
-
+requests

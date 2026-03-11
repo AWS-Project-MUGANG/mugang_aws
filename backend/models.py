@@ -209,4 +209,5 @@ class RagDocument(Base):
     title = Column(String(255), nullable=False)
     content = Column(String, nullable=False)  # 텍스트 원본 (긴 글)
     embedding = Column(Vector(1536))  # AWS Bedrock Titan Embeddings v1 (1536차원)
+    doc_metadata = Column("metadata", JSON, default={}) # 'metadata'는 예약어이므로 별칭 사용
     created_at = Column(DateTime, default=datetime.utcnow)

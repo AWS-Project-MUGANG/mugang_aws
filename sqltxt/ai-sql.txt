@@ -1,0 +1,12 @@
+-- 1. 벡터 확장 기능 활성화 (필수)
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 2. 테이블 생성
+CREATE TABLE IF NOT EXISTS rag_docs_tb (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    embedding vector(1536), -- AWS Bedrock Titan (1536차원)
+    metadata JSONB DEFAULT '{}'::jsonb, -- 페이지번호, 카테고리 등 부가정보 저장
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT (now() AT TIME ZONE 'utc')
+);

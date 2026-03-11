@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
+import random
 from jose import jwt
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, func, text
@@ -847,7 +848,7 @@ def get_student_stats(user_id: int, db: Session = Depends(get_db)):
         joinedload(models.Enrollment.lecture)
     ).filter(
         models.Enrollment.user_id == user_id,
-        models.Enrollment.status == "enrolled"
+        models.Enrollment.enroll_status == "COMPLETED"
     ).all()
 
     current_credits = sum(en.lecture.credit for en in enrollments if en.lecture and en.lecture.credit)
@@ -1323,17 +1324,32 @@ def chat_ask(req: ChatRequest, db: Session = Depends(get_db)):
 
     # 2. 검색 결과가 있으면 LLM으로 답변 생성
     if rag_docs:
-        context_text = "\n\n".join([f"제목: {d.title}\n내용: {d.content}" for d in rag_docs])
+        # LLM에 전달할 문맥(Context)에 메타데이터(출처, 페이지) 추가
+        context_parts = []
+        for d in rag_docs:
+            source = d.doc_metadata.get('source', d.title) if d.doc_metadata else d.title
+            page = d.doc_metadata.get('page') if d.doc_metadata else None
+            page_info = f" (페이지: {page})" if page else ""
+            context_parts.append(f"문서 출처: {source}{page_info}\n내용: {d.content}")
+        context_text = "\n\n---\n\n".join(context_parts)
+
         generated_answer = generate_answer_with_bedrock(user_msg, context_text)
         
+        # 답변에 포함될 출처 정보(sources)에도 메타데이터 활용
+        sources = []
+        for d in rag_docs:
+            source = d.doc_metadata.get('source', d.title) if d.doc_metadata else d.title
+            page = d.doc_metadata.get('page') if d.doc_metadata else None
+            title = f"{source} (p.{page})" if page else source
+            sources.append({"title": title, "url": "#rag"})
+        source_info = sources
+
         if generated_answer:
             reply_text = generated_answer
-            source_info = [{"title": d.title, "url": "#rag"} for d in rag_docs]
         else:
             # 생성 실패 시 원문 일부 반환
             doc = rag_docs[0]
             reply_text = f"[AI 검색 결과] 관련 내용을 찾았습니다:\n\n{doc.content[:300]}...\n\n(상세 내용은 학사 매뉴얼을 확인해주세요.)"
-            source_info = [{"title": d.title, "url": "#rag"} for d in rag_docs]
 
     # 3. 검색 결과가 없을 때만 기존 하드코딩 규칙 적용 (Fallback)
     elif "수강신청" in user_msg or "장바구니" in user_msg:
@@ -1461,13 +1477,24 @@ async def upload_rag_document(
                             logger.warning(f"PDF '{file.filename}'의 Page {i} 처리 중 오류: {page_e}")
                             continue # 페이지 처리 실패 시 다음 페이지로
                     content = "\n\n".join(page_contents)
+                    
+                    # [디버깅] 파싱된 텍스트 길이 및 앞부분 로그 출력
+                    logger.info(f"PDF 파싱 결과: 총 {len(content)}자 추출됨.")
+                    if len(content) > 0:
+                        logger.info(f"내용 미리보기: {content[:200]}...")
+                    else:
+                        logger.warning("⚠️ PDF 내용이 비어있습니다. (이미지 스캔본일 가능성 높음)")
             finally:
                 if os.path.exists(tmp_path):
                     os.remove(tmp_path)
         else:
             content = (await file.read()).decode("utf-8", errors="ignore")
 
-        # 2. Chunking 개선 (단순 글자 수 자르기 -> 문단/표 단위 보존 시도)
+        # 2. 내용 검증 (빈 파일이면 DB 저장 차단)
+        if not content.strip():
+            raise HTTPException(status_code=400, detail="파일에서 텍스트를 추출할 수 없습니다. (텍스트 복사가 가능한 PDF인지 확인해주세요)")
+
+        # 3. Chunking 개선 (단순 글자 수 자르기 -> 문단/표 단위 보존 시도)
         # LangChain의 RecursiveCharacterTextSplitter와 유사한 로직을 간단히 구현
         chunks = []
         current_chunk = ""
@@ -1502,6 +1529,77 @@ async def upload_rag_document(
     except Exception as e:
         logger.error(f"RAG Upload Failed: {e}")
         raise HTTPException(status_code=500, detail="문서 처리 중 오류가 발생했습니다.")
+
+
+@app.post("/api/v1/admin/rag/load-manual")
+def load_manual_from_local(db: Session = Depends(get_db)):
+    """
+    관리자용: 서버 로컬에 위치한 '@2026_2026_student_menual.pdf' 파일을 읽어
+    자동으로 텍스트를 추출하고 임베딩하여 RAG DB에 적재합니다.
+    """
+    filename = "@2026_2026_student_menual.pdf"
+    # 1. 파일 경로 탐색 (mugang_aws/pdf 폴더 고정 확인)
+    base_dir = os.path.dirname(__file__)
+    # backend 상위 폴더(mugang_aws) -> pdf 폴더
+    file_path = os.path.join(base_dir, "..", "pdf", filename)
+    
+    if not os.path.exists(file_path):
+        abs_path = os.path.abspath(os.path.join(base_dir, "..", "pdf"))
+        raise HTTPException(status_code=404, detail=f"서버에서 '{filename}' 파일을 찾을 수 없습니다. 파일을 '{abs_path}' 폴더에 위치시켜주세요.")
+
+    # 2. 파싱 및 텍스트 추출
+    content = ""
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            page_contents = []
+            for i, page in enumerate(pdf.pages, 1):
+                text = page.extract_text() or ""
+                page_contents.append(text)
+            content = "\n\n".join(page_contents)
+    except Exception as e:
+        logger.error(f"PDF Parsing Error: {e}")
+        raise HTTPException(status_code=500, detail=f"PDF 파싱 실패: {str(e)}")
+
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="PDF에서 텍스트를 추출할 수 없습니다.")
+
+    # 3. 청킹 (Chunking) 및 임베딩
+    chunks = []
+    current_chunk = ""
+    for p in content.split('\n\n'):
+        if len(current_chunk) + len(p) < 800:
+            current_chunk += p + "\n\n"
+        else:
+            chunks.append(current_chunk.strip())
+            current_chunk = p + "\n\n"
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+
+    title = "2026 학생 매뉴얼"
+    count = 0
+    for i, chunk in enumerate(chunks):
+        if not chunk.strip(): continue
+        vector = get_embedding(chunk)
+        if vector:
+            # doc_metadata가 모델에 정의되어 있다면 활용 가능
+            new_doc = models.RagDocument(
+                title=f"{title} (Part {i+1})",
+                content=chunk,
+                embedding=vector
+            )
+            db.add(new_doc)
+            count += 1
+    
+    db.commit()
+    
+    return {
+        "message": "PDF 임베딩 및 DB 저장이 완료되었습니다.",
+        "file_name": filename,
+        "file_path": os.path.abspath(file_path),
+        "total_characters": len(content),
+        "total_chunks_created": len(chunks),
+        "db_saved_count": count
+    }
 
 
 # --- 공지사항 ---
